@@ -92,10 +92,11 @@ impl Translator for AliyunTranslator {
             .body_mut()
             .read_json()
             .context("解析阿里翻译响应失败")?;
-        if let Some(msg) = v["Message"].as_str().filter(|s| !s.is_empty()) {
-            if v["Code"].as_str().unwrap_or("") != "200" && v["Data"].is_null() {
-                anyhow::bail!("阿里翻译错误: {msg}");
-            }
+        if let Some(msg) = v["Message"].as_str().filter(|s| !s.is_empty())
+            && v["Code"].as_str().unwrap_or("") != "200"
+            && v["Data"].is_null()
+        {
+            anyhow::bail!("阿里翻译错误: {msg}");
         }
         let text = v["Data"]["Translated"]
             .as_str()

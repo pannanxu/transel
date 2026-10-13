@@ -1,6 +1,7 @@
 //! 图片二维码 / 条码识别。
 
 use std::path::Path;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 /// 识别图片中的二维码/条码载荷；失败或无结果返回空 Vec（不中断 OCR）。

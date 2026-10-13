@@ -107,10 +107,10 @@ pub fn grab_translate_source() -> Result<TranslateSource, GrabError> {
     }
 
     // 2) 文件管理器当前选中（不碰剪贴板）
-    if let Ok(paths) = finder::selected_file_paths() {
-        if let Some(src) = classify_paths(&paths) {
-            return Ok(src);
-        }
+    if let Ok(paths) = finder::selected_file_paths()
+        && let Some(src) = classify_paths(&paths)
+    {
+        return Ok(src);
     }
 
     // 3) 模拟复制，从剪贴板读文件列表 / 图片 / 文本
@@ -235,11 +235,11 @@ fn inspect_after_copy() -> Result<TranslateSource, GrabError> {
 
         if let Ok(files) = cb.get().file_list() {
             let files: Vec<PathBuf> = files.into_iter().filter(|p| p.is_file()).collect();
-            if !files.is_empty() {
-                if let Some(src) = classify_paths(&files) {
-                    result = Ok(src);
-                    break;
-                }
+            if !files.is_empty()
+                && let Some(src) = classify_paths(&files)
+            {
+                result = Ok(src);
+                break;
             }
         }
 
@@ -333,11 +333,11 @@ pub fn copy_fallback() -> Result<Option<String>, GrabError> {
     let mut text = None;
     for _ in 0..10 {
         std::thread::sleep(Duration::from_millis(30));
-        if let Ok(t) = cb.get_text() {
-            if !t.is_empty() {
-                text = Some(t);
-                break;
-            }
+        if let Ok(t) = cb.get_text()
+            && !t.is_empty()
+        {
+            text = Some(t);
+            break;
         }
     }
     match backup {

@@ -7,10 +7,10 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, anyhow};
-use md5::{Context, Digest};
+use md5::Context;
 use serde_json::Value;
 
-use crate::services::translate::{SingleResult, Translator, ureq_agent};
+use crate::services::translate::{SingleResult, Translator};
 
 pub struct BaiduTranslator {
     app_id: String,

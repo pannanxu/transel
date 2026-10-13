@@ -216,6 +216,7 @@ fn parse_uri_list(text: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn parse_path_lines(text: &str) -> Vec<PathBuf> {
     text.lines()
         .map(|l| l.trim())

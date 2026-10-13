@@ -3,7 +3,7 @@
 use anyhow::{Context as _, Result, anyhow};
 use serde_json::{Value, json};
 
-use crate::services::translate::{SingleResult, Translator, ureq_agent};
+use crate::services::translate::{SingleResult, Translator};
 
 pub struct GoogleTranslator {
     key: String,

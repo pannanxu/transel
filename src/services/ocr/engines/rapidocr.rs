@@ -119,11 +119,11 @@ impl OcrEngine for RapidOcrEngine {
             }
             let cy = centroid_y(&line.points);
             let h = box_height(&line.points).max(8.0);
-            if let Some((ref_y, row)) = rows.last_mut() {
-                if (cy - *ref_y).abs() < h * 0.6 {
-                    row.push(text.to_string());
-                    continue;
-                }
+            if let Some((ref_y, row)) = rows.last_mut()
+                && (cy - *ref_y).abs() < h * 0.6
+            {
+                row.push(text.to_string());
+                continue;
             }
             rows.push((cy, vec![text.to_string()]));
         }

@@ -129,12 +129,12 @@ impl Translator for OpenAiCompatTranslator {
                 continue;
             };
             // OpenAI：choices[0].delta.content；少数网关可能一次给出 message.content
-            if let Some(piece) = v["choices"][0]["delta"]["content"].as_str() {
-                if !piece.is_empty() {
-                    accumulated.push_str(piece);
-                    if !on_delta(&accumulated) {
-                        return Err(anyhow!("已取消"));
-                    }
+            if let Some(piece) = v["choices"][0]["delta"]["content"].as_str()
+                && !piece.is_empty()
+            {
+                accumulated.push_str(piece);
+                if !on_delta(&accumulated) {
+                    return Err(anyhow!("已取消"));
                 }
             } else if let Some(full) = v["choices"][0]["message"]["content"].as_str()
                 && !full.is_empty()

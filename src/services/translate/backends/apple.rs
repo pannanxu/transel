@@ -2,12 +2,14 @@
 //!
 //! 需要较新的 macOS；不可用时返回明确错误，不崩溃。
 
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 use crate::services::translate::{SingleResult, Translator};
 
+#[derive(Default)]
 pub struct AppleTranslator;
 
 impl AppleTranslator {
@@ -116,6 +118,7 @@ if #available(macOS 15.0, *) {{
     })
 }
 
+#[cfg(target_os = "macos")]
 fn apple_lang(code: &str) -> &'static str {
     match code.to_ascii_lowercase().as_str() {
         "zh" | "zh-cn" | "zh-hans" => "zh-Hans",

@@ -13,6 +13,7 @@ use crate::app::secrets;
 use crate::app::state::AppState;
 use crate::features;
 use crate::platform;
+#[cfg(target_os = "macos")]
 use crate::services::input;
 use crate::services::ocr;
 use crate::services::translate::TranslateService;

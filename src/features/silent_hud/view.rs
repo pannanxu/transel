@@ -5,7 +5,6 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use gpui_kit::component::ActiveTheme;
-use gpui_kit::component::Colorize as _;
 use gpui_kit::component::Icon;
 use gpui_kit::*;
 

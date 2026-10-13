@@ -254,6 +254,25 @@ fn extract_zip(archive: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+fn find_named(root: &Path, name: &std::ffi::OsStr) -> Result<PathBuf> {
+    fn walk(dir: &Path, name: &std::ffi::OsStr) -> Option<PathBuf> {
+        let entries = fs::read_dir(dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.file_name() == Some(name) && path.is_file() {
+                return Some(path);
+            }
+            if path.is_dir()
+                && let Some(found) = walk(&path, name)
+            {
+                return Some(found);
+            }
+        }
+        None
+    }
+    walk(root, name).with_context(|| format!("归档中未找到 {:?}", name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,23 +290,4 @@ mod tests {
             }
         }
     }
-}
-
-fn find_named(root: &Path, name: &std::ffi::OsStr) -> Result<PathBuf> {
-    fn walk(dir: &Path, name: &std::ffi::OsStr) -> Option<PathBuf> {
-        let entries = fs::read_dir(dir).ok()?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.file_name() == Some(name) && path.is_file() {
-                return Some(path);
-            }
-            if path.is_dir() {
-                if let Some(found) = walk(&path, name) {
-                    return Some(found);
-                }
-            }
-        }
-        None
-    }
-    walk(root, name).with_context(|| format!("归档中未找到 {:?}", name))
 }
