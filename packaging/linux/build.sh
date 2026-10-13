@@ -34,6 +34,12 @@ mkdir -p "${DEB_ROOT}/usr/share/applications"
 mkdir -p "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps"
 mkdir -p "${DEB_ROOT}/usr/share/doc/${NAME}"
 
+ICON_PNG="${SCRIPT_DIR}/../icon.png"
+if [[ ! -f "${ICON_PNG}" ]]; then
+    echo "缺少 ${ICON_PNG}（AppImage / 桌面图标需要）" >&2
+    exit 1
+fi
+
 cp "${BIN_DIR}/transel" "${DEB_ROOT}/usr/lib/${NAME}/transel"
 cp "${BIN_DIR}/transel-cli" "${DEB_ROOT}/usr/lib/${NAME}/transel-cli"
 chmod 0755 "${DEB_ROOT}/usr/lib/${NAME}/transel"
@@ -66,13 +72,11 @@ Comment=Translate selected text and screenshots
 Exec=/usr/bin/transel
 Icon=${NAME}
 Terminal=false
-Categories=Utility;Education;
+Categories=Utility;
 StartupNotify=true
 EOF
 
-if [[ -f "${SCRIPT_DIR}/icon.png" ]]; then
-    cp "${SCRIPT_DIR}/icon.png" "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps/${NAME}.png"
-fi
+cp "${ICON_PNG}" "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps/${NAME}.png"
 
 cat > "${DEB_ROOT}/usr/share/doc/${NAME}/copyright" <<EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
@@ -107,11 +111,11 @@ ln -sf "../lib/${NAME}/transel" "${APPDIR}/usr/bin/transel"
 ln -sf "../lib/${NAME}/transel-cli" "${APPDIR}/usr/bin/transel-cli"
 
 cp "${DEB_ROOT}/usr/share/applications/${NAME}.desktop" "${APPDIR}/usr/share/applications/${NAME}.desktop"
-cp "${DEB_ROOT}/usr/share/applications/${NAME}.desktop" "${APPDIR}/${NAME}.desktop"
-if [[ -f "${SCRIPT_DIR}/icon.png" ]]; then
-    cp "${SCRIPT_DIR}/icon.png" "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${NAME}.png"
-    cp "${SCRIPT_DIR}/icon.png" "${APPDIR}/${NAME}.png"
-fi
+sed 's|^Exec=/usr/bin/transel|Exec=transel|' \
+    "${DEB_ROOT}/usr/share/applications/${NAME}.desktop" \
+    > "${APPDIR}/${NAME}.desktop"
+cp "${ICON_PNG}" "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${NAME}.png"
+cp "${ICON_PNG}" "${APPDIR}/${NAME}.png"
 
 cat > "${APPDIR}/AppRun" <<'EOF'
 #!/usr/bin/env bash

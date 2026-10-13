@@ -19,6 +19,8 @@
     <string>????</string>
     <key>CFBundleExecutable</key>
     <string>transel</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
     <key>LSMinimumSystemVersion</key>
     <string>11.0</string>
     <key>NSHighResolutionCapable</key>

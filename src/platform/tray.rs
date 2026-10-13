@@ -22,20 +22,49 @@ const SETTINGS_ID: &str = "settings";
 const QUIT_ID: &str = "quit";
 
 fn icon() -> Icon {
-    let n = 32u32;
-    let mut rgba = Vec::with_capacity((n * n * 4) as usize);
-    for y in 0..n {
-        for x in 0..n {
-            let (dx, dy) = (x as f32 - 15.5, y as f32 - 15.5);
-            let inside = dx * dx + dy * dy <= 15.0 * 15.0;
-            rgba.extend_from_slice(if inside {
-                &[0x3b, 0x82, 0xf6, 0xff]
-            } else {
-                &[0, 0, 0, 0]
-            });
+    const LOGO: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/packaging/icon.png"));
+    let (rgba, w, h) = decode_logo_rgba(LOGO);
+    let size = 64u32;
+    let rgba = if w == size && h == size {
+        rgba
+    } else {
+        resize_nearest(&rgba, w, h, size, size)
+    };
+    Icon::from_rgba(rgba, size, size).expect("icon")
+}
+
+fn decode_logo_rgba(bytes: &[u8]) -> (Vec<u8>, u32, u32) {
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    let mut reader = decoder.read_info().expect("icon.png");
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).expect("icon.png frame");
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => buf[..info.buffer_size()].to_vec(),
+        png::ColorType::Rgb => {
+            let rgb = &buf[..info.buffer_size()];
+            let mut out = Vec::with_capacity((rgb.len() / 3) * 4);
+            for &[r, g, b] in rgb.as_chunks::<3>().0 {
+                out.extend_from_slice(&[r, g, b, 255]);
+            }
+            out
+        }
+        other => panic!("icon.png 不支持的色型: {other:?}"),
+    };
+    (rgba, info.width, info.height)
+}
+
+fn resize_nearest(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (dw * dh * 4) as usize];
+    for y in 0..dh {
+        let sy = y * sh / dh;
+        for x in 0..dw {
+            let sx = x * sw / dw;
+            let si = ((sy * sw + sx) * 4) as usize;
+            let di = ((y * dw + x) * 4) as usize;
+            out[di..di + 4].copy_from_slice(&src[si..si + 4]);
         }
     }
-    Icon::from_rgba(rgba, n, n).expect("icon")
+    out
 }
 
 fn build(queue: std::sync::mpsc::Sender<TrayEvent>) -> anyhow::Result<TrayIcon> {

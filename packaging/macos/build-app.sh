@@ -37,10 +37,13 @@ sed -e "s|\${VERSION}|${VERSION}|g" \
     "${SCRIPT_DIR}/Info.plist" \
     > "${PKG_ROOT}/Contents/Info.plist"
 
-if [[ -f "${SCRIPT_DIR}/icon.icns" ]]; then
-    echo "==> 复制图标"
-    cp "${SCRIPT_DIR}/icon.icns" "${PKG_ROOT}/Contents/Resources/icon.icns"
+ICNS="${SCRIPT_DIR}/icon.icns"
+if [[ ! -f "${ICNS}" ]]; then
+    echo "缺少 ${ICNS}" >&2
+    exit 1
 fi
+echo "==> 复制图标"
+cp "${ICNS}" "${PKG_ROOT}/Contents/Resources/icon.icns"
 
 DMG_STAGE="${ROOT}/dist/dmg-root"
 rm -rf "${DMG_STAGE}"

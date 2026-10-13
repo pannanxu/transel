@@ -49,6 +49,9 @@ New-Item -ItemType Directory -Force -Path "$Staging/bin" | Out-Null
 Copy-Item "$BinDir/transel.exe" "$Staging/bin/transel.exe"
 Copy-Item "$BinDir/transel-cli.exe" "$Staging/bin/transel-cli.exe"
 
+$IconFile = Join-Path $ScriptDir "icon.ico"
+if (-not (Test-Path $IconFile)) { throw "缺少 packaging/windows/icon.ico" }
+
 $ZipPath = Join-Path $DistDir "Transel-$Version-$Arch.zip"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 Write-Host "==> 打包 $ZipPath"
@@ -81,6 +84,7 @@ try {
     & candle.exe -nologo -ext WixUtilExtension `
         "-dSourceDir=$Staging" `
         "-dVersion=$Version" `
+        "-dIconFile=$IconFile" `
         -out "$DistDir\" `
         "$ScriptDir\Product.wxs"
     if ($LASTEXITCODE -ne 0) { throw "candle 失败" }
@@ -100,3 +104,6 @@ catch {
 
 Write-Host "==> Windows 打包完成"
 Get-ChildItem $DistDir -File | ForEach-Object { $_.Name }
+if (-not (Test-Path $ZipPath)) { exit 1 }
+if (-not (Test-Path (Join-Path $DistDir "Transel-$Version-$Arch.msi"))) { exit 1 }
+exit 0

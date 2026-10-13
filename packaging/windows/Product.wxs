@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="Transel" Version="$(var.Version)"
-           Manufacturer="Transel Contributors" Language="1033"
+           Manufacturer="Transel Contributors" Language="1033" Codepage="1252"
            UpgradeCode="12345678-1234-1234-1234-123456789012">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
-             Description="Transel — cross-platform selection translator" />
+             Description="Transel - cross-platform selection translator" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="AppIcon" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
 
     <Feature Id="ProductFeature" Title="Transel" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
@@ -39,7 +41,8 @@
       <Shortcut Id="StartMenuShortcutApp"
                 Name="Transel"
                 Target="[INSTALLDIR]bin\transel.exe"
-                WorkingDirectory="INSTALLDIR" />
+                WorkingDirectory="INSTALLDIR"
+                Icon="AppIcon" />
       <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
       <RegistryValue Root="HKCU" Key="Software\dev.transel" Name="installed" Type="integer" Value="1" KeyPath="yes" />
     </Component>
