@@ -1,0 +1,39 @@
+// macOS Info.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Transel</string>
+    <key>CFBundleDisplayName</key>
+    <string>Transel</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.transel</string>
+    <key>CFBundleVersion</key>
+    <string>${VERSION}</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${VERSION}</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>CFBundleExecutable</key>
+    <string>transel</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Transel 需要调用 AppleScript 以读取你选中的文字。</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Transel 需要辅助功能权限以读取屏幕选中的文字。</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>未使用。</string>
+    <key>CFBundleDocumentTypes</key>
+    <array/>
+</dict>
+</plist>

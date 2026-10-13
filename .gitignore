@@ -1,0 +1,36 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# 打包产物
+/dist/
+*.dmg
+*.app/
+*.msi
+*.AppImage
+*.deb
+*.rpm
+
+# IDE / 编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 本地环境 / 密钥
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 日志与临时文件
+*.log
+*.tmp
+*.partial

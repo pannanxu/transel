@@ -1,0 +1,119 @@
+[package]
+name = "transel"
+version = "0.2.0"
+edition = "2024"
+description = "Transel — 跨平台划词翻译工具 (GPUI + gpui-kit)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-org/transel"
+
+[lib]
+name = "transel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "transel"
+path = "src/main.rs"
+
+[[bin]]
+name = "transel-cli"
+path = "src/bin/transel_cli.rs"
+
+[dependencies]
+# gpui-kit = gpui + gpui-component + 默认资源，锁定到具体 commit。
+# features = ["gpui-fast"]：切换到 GPUI Fast 保留渲染/布局引擎；API 仍用 gpui_kit::*。
+gpui-kit = { git = "https://github.com/longbridge/gpui-component", rev = "369f7a8f5a6602da980f008cf726467588ad517f", features = ["gpui-fast"] }
+# gpui-fast-web 要求 =0.1.3，与 gpui-pre-web 的 ^0.1.3 对齐，避免解析冲突。
+unicode-properties = "=0.1.3"
+
+anyhow = "1"
+thiserror = "1"
+global-hotkey = "0.7"
+tray-icon = "0.21"
+arboard = "3"
+enigo = "0.5"
+ureq = { version = "3", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures = "0.3"
+log = "0.4"
+env_logger = "0.11"
+urlencoding = "2"
+raw-window-handle = "0.6"
+png = "0.17"
+# 新增基础设施
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+dirs = "5"
+parking_lot = "0.12"
+once_cell = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.22"
+unicode-normalization = "0.1"
+# 简繁/语言检测
+whatlang = "0.16"
+# 翻译接口签名
+md5 = "0.7"
+sha2 = "0.10"
+sha1 = "0.10"
+hmac = "0.12"
+# RapidOCR：中文截图识别。ort 需锁 rc.12（与 rapidocr-core 0.2.2 API 匹配）
+# load-dynamic：不把 ONNX Runtime 静态链进包；由设置页下载 dylib 后 init_from。
+rapidocr-core = "0.2.2"
+ort = { version = "=2.0.0-rc.12", features = ["load-dynamic"] }
+flate2 = "1"
+tar = "0.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+x11rb = "0.13"
+
+# 截图：各平台原生工具；OCR 识别统一 RapidOCR（云端口子预留）
+
+[target.'cfg(target_os = "macos")'.dependencies]
+accessibility-sys = "0.1"
+core-foundation = "0.10"
+# 与 gpui-pre-macos 依赖树里已有的版本一致（Cargo.lock: objc2 0.6.5 / objc2-app-kit 0.3.2）
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std", "objc2-core-foundation", "NSResponder", "NSView", "NSWindow", "NSButton", "NSVisualEffectView", "NSGraphics",
+] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+zip = { version = "2", default-features = false, features = ["deflate"] }
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+  "Win32_UI_Accessibility",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Imaging",
+  "Win32_Storage_Xps",
+  "Win32_System_Memory",
+] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+
+# Debug 下优化 GPUI 相关依赖，加快运行时渲染；应用自身仍可调试。
+[profile.dev.package]
+gpui-kit = { opt-level = 3 }
+gpui-kit-assets = { opt-level = 3 }
+gpui-component = { opt-level = 3 }
+gpui-base = { opt-level = 3 }
+gpui-fast = { opt-level = 3 }
+gpui-fast-platform = { opt-level = 3 }
+gpui-fast-macros = { opt-level = 3 }
+gpui-pre = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
+gpui-pre-macros = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+taffy = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }

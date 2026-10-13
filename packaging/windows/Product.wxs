@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Transel" Version="$(var.Version)"
+           Manufacturer="Transel Contributors" Language="1033"
+           UpgradeCode="12345678-1234-1234-1234-123456789012">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             Description="Transel — cross-platform selection translator" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="ProductFeature" Title="Transel" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Transel">
+          <Directory Id="BinDir" Name="bin" />
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Transel" />
+      </Directory>
+    </Directory>
+
+    <ComponentGroup Id="ProductComponents" Directory="BinDir">
+      <Component Id="MainExeComponent" Guid="*">
+        <File Id="MainExe" Source="$(var.SourceDir)\bin\transel.exe" KeyPath="yes" />
+        <Environment Id="PATH_ENV" Name="PATH" Value="[INSTALLDIR]bin" Permanent="no" Part="last" Action="set" System="yes" />
+      </Component>
+      <Component Id="CliExeComponent" Guid="*">
+        <File Id="CliExe" Source="$(var.SourceDir)\bin\transel-cli.exe" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Component Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="*">
+      <Shortcut Id="StartMenuShortcutApp"
+                Name="Transel"
+                Target="[INSTALLDIR]bin\transel.exe"
+                WorkingDirectory="INSTALLDIR" />
+      <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\dev.transel" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Product>
+</Wix>
