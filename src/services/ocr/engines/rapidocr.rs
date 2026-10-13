@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use rapidocr_core::config::PipelineConfig;
-use rapidocr_core::model::{model_set_by_name, ModelCache, ModelDownloadMode};
 use rapidocr_core::RapidOcr;
+use rapidocr_core::config::PipelineConfig;
+use rapidocr_core::model::{ModelCache, ModelDownloadMode, model_set_by_name};
 
 use crate::app::paths;
 use crate::services::ocr::engine::OcrEngine;
@@ -53,11 +53,7 @@ impl RapidOcrEngine {
                 "准备 RapidOCR 模型 ({MODEL_SET}) → {}",
                 cache.root().display()
             );
-            cache.ensure_model_set_for_pipeline(
-                model_set,
-                pipeline,
-                ModelDownloadMode::Missing,
-            )?;
+            cache.ensure_model_set_for_pipeline(model_set, pipeline, ModelDownloadMode::Missing)?;
             let cfg = cache.config_for(model_set).with_pipeline(pipeline);
             let ocr = RapidOcr::from_config(cfg)?;
             *slot = Some(ocr);
@@ -106,11 +102,13 @@ impl OcrEngine for RapidOcrEngine {
         lines.sort_by(|a, b| {
             let ay = centroid_y(&a.points);
             let by = centroid_y(&b.points);
-            ay.partial_cmp(&by).unwrap_or(Ordering::Equal).then_with(|| {
-                let ax = centroid_x(&a.points);
-                let bx = centroid_x(&b.points);
-                ax.partial_cmp(&bx).unwrap_or(Ordering::Equal)
-            })
+            ay.partial_cmp(&by)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| {
+                    let ax = centroid_x(&a.points);
+                    let bx = centroid_x(&b.points);
+                    ax.partial_cmp(&bx).unwrap_or(Ordering::Equal)
+                })
         });
 
         let mut rows: Vec<(f32, Vec<String>)> = Vec::new();
@@ -147,6 +145,9 @@ fn centroid_y(points: &[[f32; 2]; 4]) -> f32 {
 
 fn box_height(points: &[[f32; 2]; 4]) -> f32 {
     let min_y = points.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min);
-    let max_y = points.iter().map(|p| p[1]).fold(f32::NEG_INFINITY, f32::max);
+    let max_y = points
+        .iter()
+        .map(|p| p[1])
+        .fold(f32::NEG_INFINITY, f32::max);
     max_y - min_y
 }

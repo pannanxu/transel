@@ -146,8 +146,7 @@ pub fn download_and_load() -> Result<PathBuf> {
     );
     log::info!("下载 ONNX Runtime: {url}");
     let archive = install_root().join(dist.asset);
-    download_file(&url, &archive)
-        .with_context(|| format!("下载失败: {url}"))?;
+    download_file(&url, &archive).with_context(|| format!("下载失败: {url}"))?;
 
     let extract_dir = install_root().join("extract");
     let _ = fs::remove_dir_all(&extract_dir);

@@ -112,8 +112,8 @@ if #available(macOS 15.0, *) {{
         elapsed_ms: 0,
         ok: true,
         error: None,
-            pending: false,
-        })
+        pending: false,
+    })
 }
 
 fn apple_lang(code: &str) -> &'static str {

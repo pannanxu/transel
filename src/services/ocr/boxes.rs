@@ -33,8 +33,7 @@ pub fn recognize_boxes(image: &Path) -> Vec<TextBox> {
 }
 
 fn recognize_rapidocr_boxes(image: &Path) -> anyhow::Result<Vec<TextBox>> {
-    let (img_w, img_h) = image_size(image)
-        .ok_or_else(|| anyhow::anyhow!("无法读取图片尺寸"))?;
+    let (img_w, img_h) = image_size(image).ok_or_else(|| anyhow::anyhow!("无法读取图片尺寸"))?;
     if img_w == 0 || img_h == 0 {
         anyhow::bail!("图片尺寸无效");
     }

@@ -75,16 +75,3 @@ impl OcrBackendKind {
 }
 
 pub type SharedOcrEngine = Arc<dyn OcrEngine>;
-
-
-
-
-
-
-
-
-
-
-
-
-

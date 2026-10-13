@@ -104,7 +104,9 @@ impl Translator for AliyunTranslator {
         Ok(SingleResult {
             backend: self.name().to_string(),
             text,
-            source_lang: v["Data"]["DetectedLanguage"].as_str().map(|s| s.to_string()),
+            source_lang: v["Data"]["DetectedLanguage"]
+                .as_str()
+                .map(|s| s.to_string()),
             elapsed_ms: 0,
             ok: true,
             error: None,

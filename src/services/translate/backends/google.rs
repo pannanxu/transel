@@ -13,7 +13,11 @@ pub struct GoogleTranslator {
 
 impl GoogleTranslator {
     pub fn new(key: String, project: Option<String>, agent: ureq::Agent) -> Self {
-        Self { key, project, agent }
+        Self {
+            key,
+            project,
+            agent,
+        }
     }
 }
 

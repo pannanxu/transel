@@ -43,7 +43,12 @@ impl FavoriteEntry {
         })
     }
 
-    pub fn from_texts(source: &str, translation: &str, target_lang: &str, origin: HistoryOrigin) -> Self {
+    pub fn from_texts(
+        source: &str,
+        translation: &str,
+        target_lang: &str,
+        origin: HistoryOrigin,
+    ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             ts: Utc::now(),
@@ -66,7 +71,8 @@ pub struct FavoritesStore {
 impl FavoritesStore {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).with_context(|| format!("创建 {}", parent.display()))?;
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("创建 {}", parent.display()))?;
         }
         let file = OpenOptions::new()
             .create(true)
