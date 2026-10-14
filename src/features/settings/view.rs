@@ -5,6 +5,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+type ToggleFn = Arc<dyn Fn(bool, &mut App)>;
+
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::group_box::GroupBoxVariant;
 use gpui_kit::component::h_flex;
@@ -104,11 +106,13 @@ impl SettingsView {
     ) -> Self {
         // Settings 组件读 Kit Theme；与窗口外观对齐，避免顶栏深色、内容浅色。
         sync_kit_theme_opaque(Some(window), cx);
-        cx.set_global(SettingsDraft {
-            cfg,
-            secret_inputs: BTreeMap::new(),
-            status: None,
-        });
+        if !cx.has_global::<SettingsDraft>() {
+            cx.set_global(SettingsDraft {
+                cfg,
+                secret_inputs: BTreeMap::new(),
+                status: None,
+            });
+        }
         let appearance = cx.observe_window_appearance(window, |_, window, cx| {
             sync_kit_theme_opaque(Some(window), cx);
             cx.notify();
@@ -133,8 +137,11 @@ impl SettingsView {
         }
     }
 
-    fn close(&mut self, _: &CloseWindow, window: &mut Window, _cx: &mut Context<Self>) {
+    fn close(&mut self, _: &CloseWindow, window: &mut Window, cx: &mut Context<Self>) {
         (self.actions.on_close)();
+        if cx.has_global::<AppState>() {
+            *cx.global_mut::<AppState>().settings_window.lock() = None;
+        }
         window.remove_window();
     }
 
@@ -203,7 +210,7 @@ impl SettingsView {
                     )
                     .description("关闭时出现在屏幕中上方。"),
                 ]),
-                SettingGroup::new().title("历史").item(
+                SettingGroup::new().title("历史").items(vec![
                     SettingItem::new(
                         "历史最大条数",
                         SettingField::number_input(
@@ -220,7 +227,27 @@ impl SettingsView {
                         .default_value(200.0),
                     )
                     .description("0 表示不限制。"),
-                ),
+                    SettingItem::render({
+                        let view = _view.clone();
+                        let clear = self.actions.on_clear_history.clone();
+                        move |options, _, _cx| {
+                            Button::new("clear_hist")
+                                .danger()
+                                .label("清空历史")
+                                .with_size(options.size())
+                                .on_click({
+                                    let clear = clear.clone();
+                                    let view = view.clone();
+                                    move |_, _, cx| {
+                                        clear();
+                                        draft_mut(cx).status = Some("历史已清空".into());
+                                        view.update(cx, |_, cx| cx.notify());
+                                    }
+                                })
+                        }
+                    })
+                    .keywords(["清空", "历史", "数据"]),
+                ]),
             ])
     }
 
@@ -296,7 +323,7 @@ impl SettingsView {
             ("显示设置", |c| &c.settings_hotkey),
         ];
 
-        let mut hotkey_items: Vec<SettingItem> = items
+        let hotkey_items: Vec<SettingItem> = items
             .into_iter()
             .map(|(label, getter)| {
                 SettingItem::new(
@@ -312,29 +339,7 @@ impl SettingsView {
             })
             .collect();
 
-        let clear = self.actions.on_clear_history.clone();
-        hotkey_items.push(
-            SettingItem::render({
-                let view = view.clone();
-                move |options, _, _cx| {
-                    Button::new("clear_hist")
-                        .danger()
-                        .label("清空历史")
-                        .with_size(options.size())
-                        .on_click({
-                            let clear = clear.clone();
-                            let view = view.clone();
-                            move |_, _, cx| {
-                                clear();
-                                draft_mut(cx).status = Some("历史已清空".into());
-                                view.update(cx, |_, cx| cx.notify());
-                            }
-                        })
-                }
-            })
-            .keywords(["清空", "历史", "数据"]),
-        );
-
+        let _ = view;
         SettingPage::new("快捷键")
             .icon(IconName::BookOpen)
             .resettable(false)
@@ -526,13 +531,7 @@ fn nav_section(
     v_flex()
         .w_full()
         .gap_1()
-        .child(
-            div()
-                .px_2()
-                .text_xs()
-                .text_color(p.muted)
-                .child(title),
-        )
+        .child(div().px_2().text_xs().text_color(p.muted).child(title))
         .children(items.into_iter().map(|(label, page, icon)| {
             let active = current == page;
             let view = view.clone();
@@ -555,13 +554,12 @@ fn nav_section(
                         cx.notify();
                     });
                 })
-                .child(svg().path(icon).size(px(14.)).text_color(if active { p.text } else { p.muted }))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(p.text)
-                        .child(label),
-                )
+                .child(svg().path(icon).size(px(14.)).text_color(if active {
+                    p.text
+                } else {
+                    p.muted
+                }))
+                .child(div().text_sm().text_color(p.text).child(label))
                 .into_any_element()
         }))
         .into_any_element()
@@ -584,32 +582,28 @@ fn services_workspace(
         .h_full()
         .gap_3()
         .child(
-            h_flex()
-                .w_full()
-                .items_start()
-                .gap_3()
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_lg()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(p.title)
-                                .child("服务"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(p.muted)
-                                .child("翻译功能的核心服务支持配置，下方开启的服务将被使用。"),
-                        )
-                        .when(!status.is_empty(), |el| {
-                            el.child(div().text_xs().text_color(p.muted).child(status))
-                        }),
-                ),
+            h_flex().w_full().items_start().gap_3().child(
+                v_flex()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.title)
+                            .child("服务"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(p.muted)
+                            .child("翻译功能的核心服务支持配置，下方开启的服务将被使用。"),
+                    )
+                    .when(!status.is_empty(), |el| {
+                        el.child(div().text_xs().text_color(p.muted).child(status))
+                    }),
+            ),
         )
         .child(service_tabs(view.clone(), tab, &p))
         .child(
@@ -628,66 +622,82 @@ fn services_workspace(
                     fill,
                     cx,
                 ))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .h_full()
-                        .child(match tab {
-                            ServiceTab::Translate => {
-                                if let Some(id) = selected {
-                                    backend_edit(id, view, actions, options, window, cx)
-                                } else {
-                                    empty_detail(&p, fill, "选择左侧服务查看配置，或点 + 添加。")
-                                }
-                            }
-                            ServiceTab::Ocr => ocr_detail(view, actions, options, window, cx),
-                            ServiceTab::Tts => tts_detail(view, actions, &p, fill),
-                        }),
-                ),
+                .child(div().flex_1().min_w(px(0.)).h_full().child(match tab {
+                    ServiceTab::Translate => {
+                        if let Some(id) = selected {
+                            backend_edit(id, view, actions, options, window, cx)
+                        } else {
+                            empty_detail(&p, fill, "选择左侧服务查看配置，或点 + 添加。")
+                        }
+                    }
+                    ServiceTab::Ocr => ocr_detail(view, actions, options, window, cx),
+                    ServiceTab::Tts => tts_detail(view, actions, &p, fill),
+                })),
         )
         .into_any_element()
 }
 
-fn service_tabs(view: Entity<SettingsView>, tab: ServiceTab, p: &crate::shared::theme::Palette) -> AnyElement {
+fn service_tabs(
+    view: Entity<SettingsView>,
+    tab: ServiceTab,
+    p: &crate::shared::theme::Palette,
+) -> AnyElement {
     h_flex()
         .items_center()
         .rounded(px(10.))
         .bg(p.hover)
         .p(px(3.))
         .gap_0()
-        .child(segment_tab("tab_tr", "文本翻译", tab == ServiceTab::Translate, p, {
-            let view = view.clone();
-            move |cx| {
-                view.update(cx, |this, cx| {
-                    this.service_tab = ServiceTab::Translate;
-                    this.picker_open = false;
-                    cx.notify();
-                });
-            }
-        }))
+        .child(segment_tab(
+            "tab_tr",
+            "文本翻译",
+            tab == ServiceTab::Translate,
+            p,
+            {
+                let view = view.clone();
+                move |cx| {
+                    view.update(cx, |this, cx| {
+                        this.service_tab = ServiceTab::Translate;
+                        this.picker_open = false;
+                        cx.notify();
+                    });
+                }
+            },
+        ))
         .child(div().w(px(1.)).h(px(12.)).bg(p.divider))
-        .child(segment_tab("tab_ocr", "文本识别", tab == ServiceTab::Ocr, p, {
-            let view = view.clone();
-            move |cx| {
-                view.update(cx, |this, cx| {
-                    this.service_tab = ServiceTab::Ocr;
-                    this.picker_open = false;
-                    cx.notify();
-                });
-            }
-        }))
+        .child(segment_tab(
+            "tab_ocr",
+            "文本识别",
+            tab == ServiceTab::Ocr,
+            p,
+            {
+                let view = view.clone();
+                move |cx| {
+                    view.update(cx, |this, cx| {
+                        this.service_tab = ServiceTab::Ocr;
+                        this.picker_open = false;
+                        cx.notify();
+                    });
+                }
+            },
+        ))
         .child(div().w(px(1.)).h(px(12.)).bg(p.divider))
-        .child(segment_tab("tab_tts", "语音合成", tab == ServiceTab::Tts, p, {
-            let view = view.clone();
-            move |cx| {
-                view.update(cx, |this, cx| {
-                    this.service_tab = ServiceTab::Tts;
-                    this.picker_open = false;
-                    cx.notify();
-                });
-            }
-        }))
+        .child(segment_tab(
+            "tab_tts",
+            "语音合成",
+            tab == ServiceTab::Tts,
+            p,
+            {
+                let view = view.clone();
+                move |cx| {
+                    view.update(cx, |this, cx| {
+                        this.service_tab = ServiceTab::Tts;
+                        this.picker_open = false;
+                        cx.notify();
+                    });
+                }
+            },
+        ))
         .into_any_element()
 }
 
@@ -704,8 +714,14 @@ fn segment_tab(
         .py_1()
         .rounded(px(8.))
         .cursor_pointer()
-        .when(active, |el| el.bg(p.accent).text_color(hsla(0., 0., 1., 1.)))
-        .when(!active, |el| el.bg(transparent_black()).text_color(p.muted).hover(|s| s.bg(p.hover)))
+        .when(active, |el| {
+            el.bg(p.accent).text_color(hsla(0., 0., 1., 1.))
+        })
+        .when(!active, |el| {
+            el.bg(transparent_black())
+                .text_color(p.muted)
+                .hover(|s| s.bg(p.hover))
+        })
         .text_sm()
         .font_weight(if active {
             FontWeight::SEMIBOLD
@@ -742,9 +758,11 @@ fn service_list_panel(
     cx: &App,
 ) -> AnyElement {
     let rows = match tab {
-        ServiceTab::Translate => translate_list_rows(view.clone(), actions, selected, p, cx),
-        ServiceTab::Ocr => ocr_list_rows(view.clone(), p, cx),
-        ServiceTab::Tts => tts_list_rows(view.clone(), p, cx),
+        ServiceTab::Translate => {
+            translate_list_rows(view.clone(), actions.clone(), selected, p, cx)
+        }
+        ServiceTab::Ocr => ocr_list_rows(view.clone(), actions.clone(), p, cx),
+        ServiceTab::Tts => tts_list_rows(view.clone(), actions.clone(), p, cx),
     };
     let can_add = tab == ServiceTab::Translate;
     let can_remove = tab == ServiceTab::Translate && selected.is_some();
@@ -780,14 +798,10 @@ fn service_list_panel(
                         });
                     }
                 }))
-                .child(
-                    div()
-                        .w(px(1.))
-                        .h(px(16.))
-                        .bg(p.divider),
-                )
+                .child(div().w(px(1.)).h(px(16.)).bg(p.divider))
                 .child(list_tool_label("svc_del", "−", can_remove, p, {
                     let view = view.clone();
+                    let on_save = actions.on_save.clone();
                     let id = selected.map(str::to_string);
                     move |cx| {
                         let Some(id) = id.clone() else {
@@ -795,7 +809,7 @@ fn service_list_panel(
                         };
                         draft_mut(cx).cfg.backends.retain(|b| b.id != id);
                         draft_mut(cx).secret_inputs.remove(&id);
-                        draft_mut(cx).status = Some("已删除该接口，请点保存".into());
+                        persist_deleted_backend(&id, &on_save, cx);
                         view.update(cx, |this, cx| {
                             this.selected_id = draft(cx)
                                 .cfg
@@ -826,12 +840,13 @@ fn list_tool_label(
         .items_center()
         .justify_center()
         .when(enabled, |el| {
-            el.cursor_pointer()
-                .hover(|s| s.bg(p.hover))
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+            el.cursor_pointer().hover(|s| s.bg(p.hover)).on_mouse_down(
+                MouseButton::Left,
+                move |_, _, cx| {
                     cx.stop_propagation();
                     on_click(cx);
-                })
+                },
+            )
         })
         .child(
             div()
@@ -886,16 +901,18 @@ fn translate_list_rows(
             Some({
                 let id = id.clone();
                 let view = view.clone();
+                let on_save = actions.on_save.clone();
                 Arc::new(move |checked: bool, cx: &mut App| {
                     view.update(cx, |_, cx| {
                         if let Some(b) = draft_mut(cx).cfg.backends.iter_mut().find(|b| b.id == id)
                         {
                             b.enabled = checked;
                         }
+                        save_backend_enabled(&id, checked, &on_save, cx);
                         on_toggle(id.clone());
                         cx.notify();
                     });
-                }) as Arc<dyn Fn(bool, &mut App)>
+                }) as ToggleFn
             }),
         ));
     }
@@ -913,7 +930,12 @@ fn translate_list_rows(
     rows
 }
 
-fn ocr_list_rows(view: Entity<SettingsView>, p: &crate::shared::theme::Palette, cx: &App) -> Vec<AnyElement> {
+fn ocr_list_rows(
+    view: Entity<SettingsView>,
+    actions: SettingsActions,
+    p: &crate::shared::theme::Palette,
+    cx: &App,
+) -> Vec<AnyElement> {
     let current = draft(cx).cfg.ocr_backend.clone();
     OcrBackendKind::available()
         .iter()
@@ -931,16 +953,19 @@ fn ocr_list_rows(view: Entity<SettingsView>, p: &crate::shared::theme::Palette, 
                 p,
                 {
                     let view = view.clone();
+                    let on_save = actions.on_save.clone();
                     let id = id.to_string();
                     move |cx| {
                         view.update(cx, |_, cx| {
                             draft_mut(cx).cfg.ocr_backend = id.clone();
+                            save_ocr_engine(&on_save, cx);
                             cx.notify();
                         });
                     }
                 },
                 Some({
                     let view = view.clone();
+                    let on_save = actions.on_save.clone();
                     let id = id.to_string();
                     Arc::new(move |checked: bool, cx: &mut App| {
                         if !checked {
@@ -948,21 +973,28 @@ fn ocr_list_rows(view: Entity<SettingsView>, p: &crate::shared::theme::Palette, 
                         }
                         view.update(cx, |_, cx| {
                             draft_mut(cx).cfg.ocr_backend = id.clone();
+                            save_ocr_engine(&on_save, cx);
                             cx.notify();
                         });
-                    }) as Arc<dyn Fn(bool, &mut App)>
+                    }) as ToggleFn
                 }),
             )
         })
         .collect()
 }
 
-fn tts_list_rows(view: Entity<SettingsView>, p: &crate::shared::theme::Palette, cx: &App) -> Vec<AnyElement> {
+fn tts_list_rows(
+    view: Entity<SettingsView>,
+    actions: SettingsActions,
+    p: &crate::shared::theme::Palette,
+    cx: &App,
+) -> Vec<AnyElement> {
     let current = draft(cx).cfg.tts_backend.clone();
     tts_catalog()
         .into_iter()
         .map(|(id, label, builtin)| {
-            let selected = current == id || (id == "system" && (current == "auto" || current.is_empty()));
+            let selected =
+                current == id || (id == "system" && (current == "auto" || current.is_empty()));
             service_row(
                 format!("tts_row_{id}"),
                 icons::SPEAKER,
@@ -973,16 +1005,19 @@ fn tts_list_rows(view: Entity<SettingsView>, p: &crate::shared::theme::Palette, 
                 p,
                 {
                     let view = view.clone();
+                    let on_save = actions.on_save.clone();
                     let id = id.to_string();
                     move |cx| {
                         view.update(cx, |_, cx| {
                             draft_mut(cx).cfg.tts_backend = id.clone();
+                            save_tts_engine(&on_save, cx);
                             cx.notify();
                         });
                     }
                 },
                 Some({
                     let view = view.clone();
+                    let on_save = actions.on_save.clone();
                     let id = id.to_string();
                     Arc::new(move |checked: bool, cx: &mut App| {
                         if !checked {
@@ -990,9 +1025,10 @@ fn tts_list_rows(view: Entity<SettingsView>, p: &crate::shared::theme::Palette, 
                         }
                         view.update(cx, |_, cx| {
                             draft_mut(cx).cfg.tts_backend = id.clone();
+                            save_tts_engine(&on_save, cx);
                             cx.notify();
                         });
-                    }) as Arc<dyn Fn(bool, &mut App)>
+                    }) as ToggleFn
                 }),
             )
         })
@@ -1019,7 +1055,7 @@ fn service_row(
     selected: bool,
     p: &crate::shared::theme::Palette,
     on_select: impl Fn(&mut App) + 'static,
-    on_toggle: Option<Arc<dyn Fn(bool, &mut App)>>,
+    on_toggle: Option<ToggleFn>,
 ) -> AnyElement {
     h_flex()
         .id(SharedString::from(row_id.clone()))
@@ -1045,12 +1081,7 @@ fn service_row(
                 .text_color(p.text)
                 .child(name),
         )
-        .child(
-            div()
-                .text_xs()
-                .text_color(p.muted)
-                .child(badge),
-        )
+        .child(div().text_xs().text_color(p.muted).child(badge))
         .when_some(on_toggle, |el, on_toggle| {
             el.child(
                 div()
@@ -1091,19 +1122,22 @@ fn ocr_detail(
                 .text_color(p.title)
                 .child(kind.label()),
         )
-        .child(
-            div()
-                .text_xs()
-                .text_color(p.muted)
-                .child(if matches!(kind, OcrBackendKind::Auto | OcrBackendKind::RapidOcr) {
-                    "本地识别。需先下载 ONNX Runtime。"
-                } else {
-                    "云端识别，使用对应厂商密钥（环境变量或钥匙串）。"
-                }),
-        )
+        .child(div().text_xs().text_color(p.muted).child(
+            if matches!(kind, OcrBackendKind::Auto | OcrBackendKind::RapidOcr) {
+                "本地识别。需先下载 ONNX Runtime。"
+            } else {
+                "云端识别，使用对应厂商密钥（环境变量或钥匙串）。"
+            },
+        ))
         .child(ort_download_row(options, view.clone(), cx))
         .child(div().flex_1())
-        .child(detail_save_row(view, actions, options))
+        .child(page_save_button(
+            "ocr_engine_save",
+            view,
+            actions,
+            options,
+            save_ocr_engine,
+        ))
         .into_any_element()
 }
 
@@ -1135,24 +1169,28 @@ fn tts_detail(
                 .child("左侧开关选择当前朗读引擎。云 TTS 使用对应厂商密钥。"),
         )
         .child(div().flex_1())
-        .child(detail_save_row(
+        .child(page_save_button(
+            "tts_engine_save",
             view,
             actions,
             &RenderOptions::new().with_size(Size::Small),
+            save_tts_engine,
         ))
         .into_any_element()
 }
 
-fn detail_save_row(
+fn page_save_button(
+    id: &'static str,
     view: Entity<SettingsView>,
     actions: SettingsActions,
     options: &RenderOptions,
+    save: impl Fn(&Arc<dyn Fn(Config) + Send + Sync>, &mut App) + 'static,
 ) -> AnyElement {
     h_flex()
         .w_full()
         .justify_end()
         .child(
-            Button::new("detail_save")
+            Button::new(id)
                 .primary()
                 .label("保存")
                 .with_size(options.size())
@@ -1160,7 +1198,7 @@ fn detail_save_row(
                     let view = view.clone();
                     let on_save = actions.on_save.clone();
                     move |_, _, cx| {
-                        save_draft_now(&on_save, cx);
+                        save(&on_save, cx);
                         view.update(cx, |_, cx| cx.notify());
                     }
                 }),
@@ -1229,6 +1267,7 @@ fn catalog_groups() -> Vec<(&'static str, Vec<CatalogPick>)> {
         CatalogPick::Kind(BackendKind::Youdao),
         CatalogPick::Kind(BackendKind::Caiyun),
         CatalogPick::Kind(BackendKind::Niutrans),
+        CatalogPick::Kind(BackendKind::NiutransPro),
         CatalogPick::Kind(BackendKind::DeepL),
         CatalogPick::Kind(BackendKind::Google),
         CatalogPick::Kind(BackendKind::Microsoft),
@@ -1263,32 +1302,14 @@ fn add_service_dialog(
     for (title, picks) in catalog_groups() {
         let chips: Vec<AnyElement> = picks
             .into_iter()
-            .map(|pick| {
-                catalog_chip(
-                    pick,
-                    view.clone(),
-                    &p,
-                    opaque_chip(window.appearance()),
-                )
-            })
+            .map(|pick| catalog_chip(pick, view.clone(), &p, opaque_chip(window.appearance())))
             .collect();
         sections.push(
             v_flex()
                 .w_full()
                 .gap_2()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(p.muted)
-                        .child(title),
-                )
-                .child(
-                    h_flex()
-                        .w_full()
-                        .flex_wrap()
-                        .gap_2()
-                        .children(chips),
-                )
+                .child(div().text_sm().text_color(p.muted).child(title))
+                .child(h_flex().w_full().flex_wrap().gap_2().children(chips))
                 .into_any_element(),
         );
     }
@@ -1342,19 +1363,15 @@ fn add_service_dialog(
                         .py_3()
                         .border_t_1()
                         .border_color(p.divider)
-                        .child(
-                            Button::new("add_svc_cancel")
-                                .label("取消")
-                                .on_click({
-                                    let view = view.clone();
-                                    move |_, _, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.picker_open = false;
-                                            cx.notify();
-                                        });
-                                    }
-                                }),
-                        ),
+                        .child(Button::new("add_svc_cancel").label("取消").on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.picker_open = false;
+                                    cx.notify();
+                                });
+                            }
+                        })),
                 ),
         )
         .into_any_element()
@@ -1453,13 +1470,7 @@ fn backend_edit(
     cx: &mut App,
 ) -> AnyElement {
     let p = palette(window.appearance());
-    let Some(entry) = draft(cx)
-        .cfg
-        .backends
-        .iter()
-        .find(|b| b.id == id)
-        .cloned()
-    else {
+    let Some(entry) = draft(cx).cfg.backends.iter().find(|b| b.id == id).cloned() else {
         return empty_detail(
             &p,
             opaque_chip(window.appearance()),
@@ -1504,16 +1515,11 @@ fn backend_edit(
             window,
             cx,
         ))
-        .child(
-            div()
-                .text_xs()
-                .text_color(p.muted)
-                .child(if has_key {
-                    "使用本服务需要自行申请密钥并填写到下方设置项。"
-                } else {
-                    "此服务无需 API Key，启用后即可使用。"
-                }),
-        )
+        .child(div().text_xs().text_color(p.muted).child(if has_key {
+            "使用本服务需要自行申请密钥并填写到下方设置项。"
+        } else {
+            "此服务无需 API Key，启用后即可使用。"
+        }))
         .when(openai, |el| {
             el.child(text_field_row(
                 format!("be_base_{id}"),
@@ -1582,7 +1588,7 @@ fn backend_edit(
                             let view = view.clone();
                             let id = id.clone();
                             move |_, _, cx| {
-                                persist_typed_secrets(cx);
+                                persist_secret_for(&id, cx);
                                 draft_mut(cx).status = Some("正在验证…".into());
                                 view.update(cx, |_, cx| cx.notify());
                                 let cfg = draft(cx).cfg.clone();
@@ -1612,12 +1618,12 @@ fn backend_edit(
                             let id = id.clone();
                             move |_, _, cx| {
                                 let saved = cx.global::<AppState>().config().clone();
-                                if let Some(orig) = saved.backends.iter().find(|b| b.id == id).cloned() {
-                                    if let Some(b) =
+                                if let Some(orig) =
+                                    saved.backends.iter().find(|b| b.id == id).cloned()
+                                    && let Some(b) =
                                         draft_mut(cx).cfg.backends.iter_mut().find(|b| b.id == id)
-                                    {
-                                        *b = orig;
-                                    }
+                                {
+                                    *b = orig;
                                 }
                                 draft_mut(cx).secret_inputs.remove(&id);
                                 draft_mut(cx).status = Some("已撤销该服务的未保存更改".into());
@@ -1633,8 +1639,9 @@ fn backend_edit(
                         .on_click({
                             let view = view.clone();
                             let on_save = actions.on_save.clone();
+                            let id = id.clone();
                             move |_, _, cx| {
-                                save_draft_now(&on_save, cx);
+                                save_one_backend(&id, &on_save, cx);
                                 view.update(cx, |_, cx| cx.notify());
                             }
                         }),
@@ -1645,13 +1652,24 @@ fn backend_edit(
 
 fn extra_backend_fields(kind: BackendKind) -> Vec<(&'static str, &'static str, &'static str)> {
     match kind {
-        BackendKind::Baidu | BackendKind::Youdao => vec![("app_id", "App ID", "App ID")],
-        BackendKind::Volcano | BackendKind::Amazon => vec![
+        BackendKind::Baidu => vec![("app_id", "APP ID", "开发者信息中的 APP ID")],
+        BackendKind::Youdao | BackendKind::Niutrans => {
+            vec![("app_id", "App ID", "App ID")]
+        }
+        BackendKind::Volcano => vec![
+            ("access_key", "Access Key ID", "AKLT…"),
+            ("region", "地域", "cn-north-1"),
+        ],
+        BackendKind::Amazon => vec![
             ("access_key", "AccessKey", "Access Key"),
             ("region", "地域", "地域"),
         ],
-        BackendKind::Aliyun => vec![("access_key_id", "AccessKey", "AccessKey ID")],
-        BackendKind::Microsoft => vec![("region", "地域", "eastasia")],
+        BackendKind::Aliyun => vec![("access_key_id", "AccessKey ID", "LTAI…")],
+        BackendKind::Microsoft => vec![
+            ("region", "地域", "eastasia"),
+            ("endpoint", "终结点", "可留空使用全球地址"),
+            ("deployment", "部署名", "可留空使用神经机器翻译"),
+        ],
         BackendKind::DeepL => Vec::new(),
         BackendKind::Google => vec![("project", "项目", "GCP 项目 ID（可选）")],
         BackendKind::Claude | BackendKind::Gemini => vec![("model", "模型", "模型名")],
@@ -1831,12 +1849,7 @@ fn commit_secret(
         draft_mut(cx).status = Some(format!("钥匙串写入失败: {e}"));
         return;
     }
-    let label = if let Some(b) = draft_mut(cx)
-        .cfg
-        .backends
-        .iter_mut()
-        .find(|b| b.id == id)
-    {
+    let label = if let Some(b) = draft_mut(cx).cfg.backends.iter_mut().find(|b| b.id == id) {
         b.params
             .insert("key_ref".into(), crate::app::secrets::make_ref(&account));
         if openai && !b.display_name.is_empty() {
@@ -1851,37 +1864,144 @@ fn commit_secret(
     on_secret(id.to_string());
 }
 
-fn persist_typed_secrets(cx: &mut App) {
-    let ids: Vec<String> = draft(cx)
-        .secret_inputs
-        .iter()
-        .filter(|(_, v)| !v.trim().is_empty())
-        .map(|(k, _)| k.clone())
-        .collect();
+fn persist_secret_for(id: &str, cx: &mut App) {
     let noop: Arc<dyn Fn(String) + Send + Sync> = Arc::new(|_| {});
-    for id in ids {
-        commit_secret(&id, true, &noop, cx);
-    }
+    commit_secret(id, true, &noop, cx);
 }
 
-fn save_draft_now(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
-    if !cx.has_global::<SettingsDraft>() {
-        return;
-    }
-    persist_typed_secrets(cx);
-    let draft_cfg = draft(cx).cfg.clone();
-    if let Err(e) = draft_cfg.save(&paths::config_file()) {
+fn live_config(cx: &App) -> Config {
+    cx.global::<AppState>().config().clone()
+}
+
+fn write_live(
+    next: Config,
+    apply_ocr: bool,
+    msg: impl Into<String>,
+    on_save: &Arc<dyn Fn(Config) + Send + Sync>,
+    cx: &mut App,
+) {
+    if let Err(e) = next.save(&paths::config_file()) {
         draft_mut(cx).status = Some(format!("保存失败: {e}"));
         return;
     }
-    let backend = draft_cfg.ocr_backend.clone();
-    std::thread::Builder::new()
-        .name("ocr-switch".into())
-        .spawn(move || ocr::set_engine_from_config(&backend))
-        .ok();
-    cx.global::<AppState>().reload_config(draft_cfg.clone());
-    on_save(draft_cfg);
-    draft_mut(cx).status = Some("已保存并热更新".into());
+    if apply_ocr {
+        let backend = next.ocr_backend.clone();
+        std::thread::Builder::new()
+            .name("ocr-switch".into())
+            .spawn(move || ocr::set_engine_from_config(&backend))
+            .ok();
+    }
+    cx.global::<AppState>().reload_config(next.clone());
+    on_save(next);
+    draft_mut(cx).status = Some(msg.into());
+}
+
+fn save_translate_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
+    let d = draft(cx).cfg.clone();
+    let mut c = live_config(cx);
+    c.target_lang = d.target_lang;
+    c.source_lang = d.source_lang;
+    c.auto_swap = d.auto_swap;
+    c.pin_popup_by_default = d.pin_popup_by_default;
+    c.popup_follow_mouse = d.popup_follow_mouse;
+    c.history_limit = d.history_limit;
+    write_live(c, false, "翻译设置已保存", on_save, cx);
+}
+
+fn save_ocr_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
+    let d = draft(cx).cfg.clone();
+    let mut c = live_config(cx);
+    c.ocr_continuous = d.ocr_continuous;
+    c.ocr_auto_copy = d.ocr_auto_copy;
+    c.ocr_smart_paragraph = d.ocr_smart_paragraph;
+    write_live(c, false, "OCR 设置已保存", on_save, cx);
+}
+
+fn save_hotkeys_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
+    let d = draft(cx).cfg.clone();
+    let mut c = live_config(cx);
+    c.translate_hotkey = d.translate_hotkey;
+    c.pin_hotkey = d.pin_hotkey;
+    c.ocr_hotkey = d.ocr_hotkey;
+    c.input_hotkey = d.input_hotkey;
+    c.speak_hotkey = d.speak_hotkey;
+    c.history_hotkey = d.history_hotkey;
+    c.settings_hotkey = d.settings_hotkey;
+    c.ocr_only_hotkey = d.ocr_only_hotkey;
+    c.ocr_silent_hotkey = d.ocr_silent_hotkey;
+    c.ocr_finder_hotkey = d.ocr_finder_hotkey;
+    c.silent_replace_hotkey = d.silent_replace_hotkey;
+    c.silent_input_hotkey = d.silent_input_hotkey;
+    c.overlay_hotkey = d.overlay_hotkey;
+    c.favorites_hotkey = d.favorites_hotkey;
+    write_live(c, false, "快捷键已保存", on_save, cx);
+}
+
+fn save_backend_enabled(
+    id: &str,
+    enabled: bool,
+    on_save: &Arc<dyn Fn(Config) + Send + Sync>,
+    cx: &mut App,
+) {
+    let mut c = live_config(cx);
+    let Some(slot) = c.backends.iter_mut().find(|b| b.id == id) else {
+        return;
+    };
+    slot.enabled = enabled;
+    let label = if slot.display_name.is_empty() {
+        kind_label(&slot.kind).to_string()
+    } else {
+        slot.display_name.clone()
+    };
+    write_live(
+        c,
+        false,
+        if enabled {
+            format!("{label} 已启用")
+        } else {
+            format!("{label} 已关闭")
+        },
+        on_save,
+        cx,
+    );
+}
+
+fn save_one_backend(id: &str, on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
+    persist_secret_for(id, cx);
+    let Some(entry) = draft(cx).cfg.backends.iter().find(|b| b.id == id).cloned() else {
+        draft_mut(cx).status = Some("未找到该服务".into());
+        return;
+    };
+    let label = if entry.display_name.is_empty() {
+        kind_label(&entry.kind).to_string()
+    } else {
+        entry.display_name.clone()
+    };
+    let mut c = live_config(cx);
+    if let Some(slot) = c.backends.iter_mut().find(|b| b.id == id) {
+        *slot = entry;
+    } else {
+        c.backends.push(entry);
+    }
+    write_live(c, false, format!("{label} 已保存"), on_save, cx);
+}
+
+fn save_ocr_engine(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
+    let mut c = live_config(cx);
+    c.ocr_backend = draft(cx).cfg.ocr_backend.clone();
+    write_live(c, true, "OCR 服务已保存", on_save, cx);
+}
+
+fn save_tts_engine(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
+    let mut c = live_config(cx);
+    c.tts_backend = draft(cx).cfg.tts_backend.clone();
+    write_live(c, false, "语音服务已保存", on_save, cx);
+}
+
+fn persist_deleted_backend(id: &str, on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
+    let mut c = live_config(cx);
+    c.backends.retain(|b| b.id != id);
+    write_live(c, false, "已删除该接口", on_save, cx);
 }
 
 impl Render for SettingsView {
@@ -1896,66 +2016,58 @@ impl Render for SettingsView {
             String::new()
         };
 
-        let toolbar = h_flex()
-            .id("settings_toolbar")
-            .w_full()
-            .h(px(40.))
-            .px_3()
-            .items_center()
-            .gap_2()
-            .border_b_1()
-            .border_color(p.divider)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .text_xs()
-                    .text_color(p.muted)
-                    .child(status),
-            )
-            .child(
-                Button::new("settings_save")
-                    .primary()
-                    .label("保存")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        save_draft_now(&this.actions.on_save, cx);
-                        cx.notify();
-                    })),
-            );
-
+        let options = RenderOptions::new().with_size(Size::Small);
         let content = match nav {
             NavPage::Services => services_workspace(
                 view.clone(),
-                actions,
+                actions.clone(),
                 self.service_tab,
                 self.selected_id.clone(),
-                &RenderOptions::new().with_size(Size::Small),
+                &options,
                 window,
                 cx,
             ),
             _ => {
                 let page = self.form_page(view.clone(), cx).unwrap();
-                // Kit Settings 自带侧栏搜索；藏到裁切区外，只留右侧表单。
-                let hide = px(188.);
-                div()
-                    .relative()
+                let hide_sidebar = StyleRefinement {
+                    display: Some(Display::None),
+                    ..Default::default()
+                };
+                let form = Settings::new(format!("transel-settings-{nav:?}"))
+                    .with_size(Size::Small)
+                    .with_group_variant(GroupBoxVariant::Fill)
+                    .sidebar_width(px(0.))
+                    .sidebar_size_range(px(0.)..px(0.))
+                    .sidebar_style(&hide_sidebar)
+                    .pages(vec![page]);
+                v_flex()
                     .size_full()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .bottom_0()
-                            .left(-hide)
-                            .right_0()
-                            .child(
-                                Settings::new(format!("transel-settings-{nav:?}"))
-                                    .with_size(Size::Small)
-                                    .with_group_variant(GroupBoxVariant::Fill)
-                                    .sidebar_width(hide)
-                                    .sidebar_size_range(hide..hide)
-                                    .pages(vec![page]),
-                            ),
+                    .gap_2()
+                    .when(!status.is_empty(), |el| {
+                        el.child(div().text_xs().text_color(p.muted).child(status.clone()))
+                    })
+                    .child(div().flex_1().min_h(px(0.)).min_w(px(0.)).child(form))
+                    .when(
+                        matches!(nav, NavPage::Translate | NavPage::Ocr | NavPage::Hotkeys),
+                        |el| {
+                            el.child(page_save_button(
+                                match nav {
+                                    NavPage::Translate => "save_translate_page",
+                                    NavPage::Ocr => "save_ocr_page",
+                                    NavPage::Hotkeys => "save_hotkeys_page",
+                                    _ => "save_page",
+                                },
+                                view.clone(),
+                                actions.clone(),
+                                &options,
+                                move |on_save, cx| match nav {
+                                    NavPage::Translate => save_translate_form(on_save, cx),
+                                    NavPage::Ocr => save_ocr_form(on_save, cx),
+                                    NavPage::Hotkeys => save_hotkeys_form(on_save, cx),
+                                    _ => {}
+                                },
+                            ))
+                        },
                     )
                     .into_any_element()
             }
@@ -1977,7 +2089,6 @@ impl Render for SettingsView {
                     .id("settings_card")
                     .size_full()
                     .overflow_hidden()
-                    .child(toolbar)
                     .child(
                         h_flex()
                             .id("settings_body")

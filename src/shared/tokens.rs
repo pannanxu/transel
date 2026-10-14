@@ -24,7 +24,7 @@ pub const UTILITY_ORIGIN_Y: f32 = 120.;
 /// 列表类 utility 窗口默认尺寸。
 pub const HISTORY_SIZE: (f32, f32) = (640., 520.);
 pub const SETTINGS_SIZE: (f32, f32) = (980., 680.);
-pub const FAVORITES_SIZE: (f32, f32) = (520., 480.);
+pub const FAVORITES_SIZE: (f32, f32) = (640., 560.);
 pub const OCR_SIZE: (f32, f32) = (520., 420.);
 
 /// Overlay 预览最大逻辑宽高（相对截图像素缩放）。

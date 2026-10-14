@@ -46,10 +46,7 @@ impl Translator for YoudaoTranslator {
             .unwrap_or(0)
             .to_string();
         let input = sign_input(text);
-        let sign_src = format!(
-            "{}{}{}{}{}",
-            self.app_id, input, salt, curtime, self.key
-        );
+        let sign_src = format!("{}{}{}{}{}", self.app_id, input, salt, curtime, self.key);
         let mut h = Sha256::new();
         h.update(sign_src.as_bytes());
         let sign = format!("{:x}", h.finalize());
@@ -91,7 +88,9 @@ impl Translator for YoudaoTranslator {
             anyhow::bail!("有道翻译结果为空");
         }
         let src = v["l"].as_str().and_then(|l| {
-            l.split('2').next().filter(|s| !s.is_empty() && *s != "auto")
+            l.split('2')
+                .next()
+                .filter(|s| !s.is_empty() && *s != "auto")
         });
         Ok(SingleResult {
             backend: self.name().to_string(),
@@ -119,7 +118,11 @@ fn sign_input(q: &str) -> String {
 
 fn error_code(v: &Value) -> String {
     v.get("errorCode")
-        .and_then(|e| e.as_str().map(|s| s.to_string()).or_else(|| e.as_u64().map(|n| n.to_string())))
+        .and_then(|e| {
+            e.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| e.as_u64().map(|n| n.to_string()))
+        })
         .unwrap_or_else(|| "unknown".into())
 }
 

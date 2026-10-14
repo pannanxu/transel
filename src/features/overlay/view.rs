@@ -2,18 +2,23 @@
 
 use std::sync::Arc;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable};
+use gpui_kit::component::ActiveTheme;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::platform;
 use crate::services::ocr::TextBox;
-use crate::shared::actions::{CloseWindow, CopyResult, UTILITY_KEY_CONTEXT};
+use crate::shared::actions::{CloseWindow, CopyResult, OVERLAY_KEY_CONTEXT};
 use crate::shared::chrome::EmptyState;
+use crate::shared::icons;
 use crate::shared::loading;
 use crate::shared::theme::palette;
 use crate::shared::tokens::SHADOW_MARGIN;
+use crate::shared::tooltip;
+
+const PAD: f32 = 14.;
+const HEADER_H: f32 = 24.;
+const GAP: f32 = 10.;
 
 #[derive(Clone)]
 pub struct OverlayBlock {
@@ -42,8 +47,10 @@ pub struct OverlayView {
     pub image_h: f32,
     pub loading: bool,
     pub status: Option<SharedString>,
+    pub copied: bool,
     pub actions: OverlayActions,
     focus: FocusHandle,
+    drag: Option<platform::ManualDrag>,
 }
 
 impl OverlayView {
@@ -63,8 +70,10 @@ impl OverlayView {
             image_h: image_h.max(1.),
             loading: false,
             status: None,
+            copied: false,
             actions,
             focus,
+            drag: None,
         }
     }
 
@@ -77,8 +86,10 @@ impl OverlayView {
             image_h: 420.,
             loading: true,
             status: Some("识别中…".into()),
+            copied: false,
             actions,
             focus,
+            drag: None,
         }
     }
 
@@ -105,7 +116,7 @@ impl OverlayView {
         window.remove_window();
     }
 
-    fn copy_result(&mut self, _: &CopyResult, _window: &mut Window, _cx: &mut Context<Self>) {
+    fn copy_result(&mut self, _: &CopyResult, _window: &mut Window, cx: &mut Context<Self>) {
         let all_text = self
             .blocks
             .iter()
@@ -117,7 +128,31 @@ impl OverlayView {
             return;
         }
         (self.actions.on_copy_all)(all_text);
+        self.copied = true;
+        cx.notify();
     }
+}
+
+fn icon_button(
+    id: &'static str,
+    icon: &'static str,
+    color: Hsla,
+    hover: Hsla,
+    tip: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let tip = tip.into();
+    div()
+        .id(id)
+        .size(px(22.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(6.))
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover))
+        .active(move |s| s.opacity(0.7))
+        .tooltip(tooltip::build(tip))
+        .child(svg().path(icon).size(px(14.)).text_color(color))
 }
 
 impl Render for OverlayView {
@@ -127,24 +162,29 @@ impl Render for OverlayView {
         let busy = self.loading;
         let status = self.status.clone();
         let empty_copy = self.blocks.iter().all(|b| b.translation.trim().is_empty());
+        let copy_svg = if self.copied {
+            icons::CHECK
+        } else {
+            icons::COPY
+        };
+        let copy_color = if self.copied {
+            p.accent
+        } else if busy || empty_copy {
+            p.muted.opacity(0.35)
+        } else {
+            p.muted
+        };
 
-        // Overlay box fill: semantic primary with alpha — raster/overlay exception.
         let box_bg = theme.primary.opacity(0.82);
         let box_fg = theme.primary_foreground;
         let canvas_bg = theme.background.opacity(0.92);
 
         let canvas: AnyElement = if self.loading {
-            div()
-                .flex_1()
-                .bg(canvas_bg)
-                .child(loading::loading_block(
-                    status.clone().unwrap_or_else(|| "处理中…".into()),
-                    &p,
-                ))
-                .into_any_element()
+            loading::loading_block(status.clone().unwrap_or_else(|| "处理中…".into()), &p)
         } else if self.blocks.is_empty() {
-            EmptyState::new(status.unwrap_or_else(|| "没有结果".into()))
+            EmptyState::new(status.clone().unwrap_or_else(|| "没有结果".into()))
                 .detail("未检测到可用文本框。")
+                .centered()
                 .into_any_element()
         } else {
             let mut boxes: Vec<AnyElement> = Vec::new();
@@ -168,7 +208,7 @@ impl Render for OverlayView {
                         .min_h(relative((h / 100.).max(0.02)))
                         .px_1()
                         .py_0p5()
-                        .rounded(px(3.))
+                        .rounded(px(4.))
                         .bg(box_bg)
                         .text_xs()
                         .text_color(box_fg)
@@ -180,69 +220,118 @@ impl Render for OverlayView {
             div()
                 .id("ov_canvas")
                 .flex_1()
+                .min_h_0()
                 .relative()
+                .rounded(px(8.))
                 .bg(canvas_bg)
                 .overflow_hidden()
                 .children(boxes)
                 .into_any_element()
         };
 
-        let card = div()
-            .id("ov_card")
-            .size_full()
+        let header = div()
+            .id("ov_header")
             .flex()
-            .flex_col()
-            .bg(theme.popover)
-            .text_color(theme.popover_foreground)
-            .border_1()
-            .border_color(theme.border)
-            .rounded(px(platform::CORNER_RADIUS as f32))
-            .overflow_hidden()
+            .flex_row()
+            .items_center()
+            .h(px(HEADER_H))
+            .gap(px(8.))
+            .cursor_default()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, _cx| this.drag = platform::start_drag(window)),
+            )
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, _cx| {
+                if let Some(d) = &this.drag {
+                    if ev.pressed_button == Some(MouseButton::Left) {
+                        platform::drag_move(d);
+                    } else {
+                        this.drag = None;
+                    }
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _cx| this.drag = None),
+            )
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .items_center()
-                    .h_9()
-                    .px_3()
-                    .gap_2()
-                    .border_b_1()
-                    .border_color(theme.border)
+                    .gap(px(6.))
+                    .child(img(icons::LOGO).size(px(16.)).rounded(px(3.)))
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(px(12.))
                             .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.title)
                             .child("原图翻译"),
-                    )
-                    .when_some(self.status.clone(), |el, s| {
-                        el.child(div().text_xs().text_color(theme.muted_foreground).child(s))
-                    })
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("ov_copy")
-                            .primary()
-                            .label("复制全部")
-                            .disabled(busy || empty_copy)
-                            .with_size(gpui_kit::component::Size::Small)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.copy_result(&CopyResult, window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("ov_close")
-                            .ghost()
-                            .label("关闭")
-                            .with_size(gpui_kit::component::Size::Small)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.close(&CloseWindow, window, cx);
-                            })),
                     ),
             )
+            .when_some(status.filter(|_| busy), |el, s| {
+                el.child(div().text_size(px(11.)).text_color(p.muted).child(s))
+            })
+            .child(div().flex_1())
+            .child(
+                icon_button(
+                    "ov_copy",
+                    copy_svg,
+                    copy_color,
+                    p.hover,
+                    if self.copied {
+                        "已复制全部"
+                    } else {
+                        "复制全部"
+                    },
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.copy_result(&CopyResult, window, cx);
+                    }),
+                ),
+            )
+            .child(
+                icon_button("ov_close", icons::CLOSE, p.muted, p.hover, "关闭").on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.close(&CloseWindow, window, cx);
+                    }),
+                ),
+            );
+
+        let card = div()
+            .id("ov_card")
+            .size_full()
+            .flex()
+            .flex_col()
+            .gap(px(GAP))
+            .p(px(PAD))
+            .rounded(px(platform::CORNER_RADIUS as f32))
+            .border_1()
+            .border_color(p.border)
+            .bg(p.card)
+            .overflow_hidden()
+            .when(SHADOW_MARGIN > 0., |el| {
+                el.shadow(vec![BoxShadow {
+                    color: p.shadow,
+                    offset: point(px(0.), px(4.)),
+                    blur_radius: px(10.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }])
+            })
+            .font_family(".SystemUIFont")
+            .child(header)
+            .child(div().h(px(1.)).w_full().bg(p.divider))
             .child(canvas);
 
         div()
             .id("ov_root")
-            .key_context(UTILITY_KEY_CONTEXT)
+            .key_context(OVERLAY_KEY_CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::close))
             .on_action(cx.listener(Self::copy_result))

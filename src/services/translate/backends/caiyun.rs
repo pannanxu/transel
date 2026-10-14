@@ -33,7 +33,7 @@ impl Translator for CaiyunTranslator {
         let body = json!({
             "source": text,
             "trans_type": trans_type,
-            "request_id": "swipe-lingo",
+            "request_id": "transel",
             "detect": true,
         });
         let v: Value = self

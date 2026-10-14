@@ -90,6 +90,9 @@ pub fn open_document_window<V: 'static + Render>(
         let bg = crate::shared::theme::opaque_panel(window.appearance());
         cx.new(|cx| gpui_kit::base::Root::new(view, window, cx).bg(bg))
     })?;
+    let _ = handle.update(cx, |_, window, _| {
+        platform::setup_document_window(window);
+    });
     cx.activate(true);
     Ok(handle.into())
 }

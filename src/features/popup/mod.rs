@@ -205,7 +205,6 @@ fn spawn_translate(
                     BatchEvent::Progress(r) => {
                         if let Mode::Batch(b) = &mut this.mode {
                             b.apply_progress(r);
-                            this.schedule_resize_from_content(cx);
                             cx.notify();
                         }
                         true

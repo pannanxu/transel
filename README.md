@@ -29,7 +29,7 @@ Transel 面向阅读与写作时的即时翻译：在浏览器、编辑器或其
 | 截图 OCR | RapidOCR，以及火山 / 腾讯 / 百度 / 有道 / Google 云识别；腾讯图片翻译 |
 | 原图翻译 | 在截图上标出识别区域并翻译 |
 | 静默替换 | 译文写回选区或输入框全文；指针旁可停止当前任务 |
-| 翻译接口 | 机器翻译（Apple 系统翻译、DeepL、Google、微软、Amazon、百度、有道、阿里、火山、彩云、小牛等）与 LLM 通道（OpenAI / Azure / Claude / Gemini / 智谱 / DeepSeek / 通义 / 豆包 / Kimi / Ollama 等） |
+| 翻译接口 | 机器翻译（Apple 系统翻译、DeepL、Google、微软、Amazon、百度、有道、阿里、火山、彩云、小牛 Flash / Pro 等）与 LLM 通道（OpenAI / Azure / Claude / Gemini / 智谱 / DeepSeek / 通义 / 豆包 / Kimi / Ollama 等） |
 | 词典 | 英语单词：音标、词性、例句 |
 | 朗读 | 系统 TTS，以及火山 / 腾讯 / Google / Microsoft 云语音 |
 | 历史 / 收藏 | 应用内搜索 |

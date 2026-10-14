@@ -10,7 +10,7 @@ use gpui_kit::*;
 
 use crate::app::state::AppState;
 use crate::platform;
-use crate::shared::actions::{CloseWindow, CopyResult, UTILITY_KEY_CONTEXT};
+use crate::shared::actions::{CloseWindow, CopyResult, OCR_KEY_CONTEXT};
 use crate::shared::chrome::EmptyState;
 use crate::shared::icons;
 use crate::shared::loading;
@@ -180,16 +180,18 @@ impl Render for OcrView {
         let busy = self.loading;
         let can_use = !busy && !self.text.trim().is_empty();
         let status = self.status.clone();
+        let idle_status = status.clone().filter(|_| !busy);
 
         let body: AnyElement = if self.loading && self.text.is_empty() {
-            loading::loading_row("正在识别…", &p)
+            loading::loading_block("正在识别…", &p)
         } else if self.text.is_empty() {
             EmptyState::new("识别结果会显示在这里")
                 .detail(
-                    status
+                    idle_status
                         .clone()
-                        .unwrap_or_else(|| "截图选区后开始识别".into()),
+                        .unwrap_or_else(|| "截图选区后开始识别。".into()),
                 )
+                .centered()
                 .into_any_element()
         } else {
             div()
@@ -197,6 +199,10 @@ impl Render for OcrView {
                 .flex_1()
                 .min_h_0()
                 .w_full()
+                .px(px(8.))
+                .py(px(8.))
+                .rounded(px(8.))
+                .bg(p.input_bg)
                 .overflow_y_scrollbar()
                 .when(self.loading, |el| {
                     el.child(loading::loading_row("正在识别…", &p))
@@ -258,6 +264,18 @@ impl Render for OcrView {
                             .child("OCR"),
                     ),
             )
+            .when(continuous, |el| {
+                el.child(
+                    div()
+                        .px(px(6.))
+                        .py(px(1.))
+                        .rounded(px(4.))
+                        .bg(p.pill_bg)
+                        .text_size(px(10.))
+                        .text_color(p.accent)
+                        .child("连续"),
+                )
+            })
             .when_some(status.filter(|_| busy), |el, s| {
                 el.child(div().text_size(px(11.)).text_color(p.muted).child(s))
             })
@@ -345,6 +363,7 @@ impl Render for OcrView {
             .border_1()
             .border_color(p.border)
             .bg(p.card)
+            .overflow_hidden()
             .when(SHADOW_MARGIN > 0., |el| {
                 el.shadow(vec![BoxShadow {
                     color: p.shadow,
@@ -357,12 +376,15 @@ impl Render for OcrView {
             .font_family(".SystemUIFont")
             .cursor_default()
             .child(header)
+            .when_some(idle_status.filter(|_| !self.text.is_empty()), |el, s| {
+                el.child(div().text_size(px(11.)).text_color(p.danger).child(s))
+            })
             .child(div().h(px(1.)).w_full().bg(p.divider))
             .child(body);
 
         div()
             .id("ocr_root")
-            .key_context(UTILITY_KEY_CONTEXT)
+            .key_context(OCR_KEY_CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::close))
             .on_action(cx.listener(Self::copy_result))

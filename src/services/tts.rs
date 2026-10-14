@@ -194,7 +194,12 @@ fn speak_volcano(opts: TtsOptions) -> anyhow::Result<()> {
     .ok_or_else(|| anyhow::anyhow!("未配置火山语音 Token (VOLCANO_TTS_TOKEN)"))?;
     let cluster = secrets::env_or_keyring(&["VOLCANO_TTS_CLUSTER"], &["volcano_tts_cluster"])
         .unwrap_or_else(|| "volcano_tts".into());
-    let voice = match opts.language.unwrap_or("zh-CN").to_ascii_lowercase().as_str() {
+    let voice = match opts
+        .language
+        .unwrap_or("zh-CN")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "en" | "en-us" | "en-gb" => "BV503_streaming",
         _ => "BV700_streaming",
     };
@@ -214,9 +219,7 @@ fn speak_volcano(opts: TtsOptions) -> anyhow::Result<()> {
         .send_json(body)?
         .body_mut()
         .read_json()?;
-    if v["code"].as_i64().unwrap_or(-1) != 3000
-        && v["code"].as_i64().unwrap_or(0) != 0
-    {
+    if v["code"].as_i64().unwrap_or(-1) != 3000 && v["code"].as_i64().unwrap_or(0) != 0 {
         anyhow::bail!("火山语音失败: {v}");
     }
     let b64 = v["data"]
@@ -241,7 +244,12 @@ fn speak_tencent(opts: TtsOptions) -> anyhow::Result<()> {
     .ok_or_else(|| anyhow::anyhow!("未配置腾讯云 SecretKey"))?;
     let region = secrets::env_or_keyring(&["TENCENT_REGION"], &["tencent_region"])
         .unwrap_or_else(|| "ap-guangzhou".into());
-    let (lang, voice) = match opts.language.unwrap_or("zh-CN").to_ascii_lowercase().as_str() {
+    let (lang, voice) = match opts
+        .language
+        .unwrap_or("zh-CN")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "en" | "en-us" | "en-gb" => (1, 101001),
         _ => (1, 101001),
     };

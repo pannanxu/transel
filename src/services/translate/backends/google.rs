@@ -38,7 +38,7 @@ impl Translator for GoogleTranslator {
             "target": target,
             "format": "text",
         });
-        if let Some(s) = source_hint {
+        if let Some(s) = source_hint.filter(|s| !s.eq_ignore_ascii_case("auto")) {
             body["source"] = json!(s);
         }
         if let Some(p) = &self.project {

@@ -111,7 +111,10 @@ impl OcrEngine for TencentImageTranslate {
             &payload,
         )?;
         tencent_ocr_error(&v)?;
-        if let Some(t) = v["Response"]["TargetText"].as_str().filter(|s| !s.is_empty()) {
+        if let Some(t) = v["Response"]["TargetText"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+        {
             return Ok(t.to_string());
         }
         let mut out = String::new();

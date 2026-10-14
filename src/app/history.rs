@@ -58,6 +58,35 @@ pub enum HistoryOrigin {
     Ocr,
 }
 
+impl HistoryOrigin {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Selection => "划词",
+            Self::Input => "输入",
+            Self::Ocr => "OCR",
+        }
+    }
+}
+
+/// 列表分组标题：今天 / 昨天 / 具体日期。
+pub fn day_heading(ts: DateTime<Utc>) -> String {
+    use chrono::Local;
+    let local = ts.with_timezone(&Local);
+    let today = Local::now().date_naive();
+    let day = local.date_naive();
+    if day == today {
+        "今天".into()
+    } else if today.signed_duration_since(day).num_days() == 1 {
+        "昨天".into()
+    } else {
+        local.format("%Y年%m月%d日").to_string()
+    }
+}
+
+pub fn clock_label(ts: DateTime<Utc>) -> String {
+    ts.with_timezone(&chrono::Local).format("%H:%M").to_string()
+}
+
 pub struct HistoryStore {
     file: PMutex<File>,
     path: std::path::PathBuf,

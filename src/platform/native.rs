@@ -88,6 +88,14 @@ pub fn apply_popup_pin(window: &Window, _pinned: bool) {
     }
 }
 
+/// 设置等普通窗口：失焦后仍留在屏幕上（不像 NSPanel 那样点到别处就藏）。
+pub fn setup_document_window(window: &Window) {
+    #[cfg(target_os = "macos")]
+    macos_impl::setup_document(window);
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+}
+
 /// 窗口尺寸变化后调用：让 macOS 按新的圆角形状重算阴影。
 pub fn refresh_shadow(window: &Window) {
     #[cfg(target_os = "macos")]
@@ -104,9 +112,9 @@ mod macos_impl {
     use objc2::runtime::AnyObject;
     use objc2::{MainThreadMarker, MainThreadOnly, msg_send};
     use objc2_app_kit::{
-        NSAutoresizingMaskOptions, NSFloatingWindowLevel, NSView, NSVisualEffectBlendingMode,
-        NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowButton,
-        NSWindowOrderingMode, NSWindowStyleMask,
+        NSAutoresizingMaskOptions, NSFloatingWindowLevel, NSNormalWindowLevel, NSView,
+        NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
+        NSVisualEffectView, NSWindow, NSWindowButton, NSWindowOrderingMode, NSWindowStyleMask,
     };
     use objc2_foundation::NSString;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -215,6 +223,16 @@ mod macos_impl {
 
     /// NSPanel 默认 hidesOnDeactivate=YES，点回浏览器会把翻译窗藏掉。
     /// 固定后关掉该行为并保持 Floating 层级。
+    /// 普通文档窗口：失焦不隐藏，层级与系统窗口一致。
+    pub fn setup_document(window: &gpui_kit::Window) {
+        let Some(nswindow) = nswindow_of(window) else {
+            return;
+        };
+        nswindow.setHidesOnDeactivate(false);
+        nswindow.setLevel(NSNormalWindowLevel);
+        nswindow.setCanHide(false);
+    }
+
     pub fn apply_pin(window: &gpui_kit::Window, pinned: bool) {
         let Some(nswindow) = nswindow_of(window) else {
             return;

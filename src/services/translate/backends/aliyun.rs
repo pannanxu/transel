@@ -1,10 +1,14 @@
-//! 阿里云机器翻译（TranslateGeneral）。
+//! 阿里云机器翻译 TranslateGeneral（通用版）。
 //!
-//! 参数：`access_key_id` + `key_ref`(secret)。
+//! 文档：<https://help.aliyun.com/zh/machine-translation/developer-reference/api-alimt-2018-10-12-translategeneral>
+//!
+//! RPC：`POST https://mt.aliyuncs.com/`，`Action=TranslateGeneral`，`Version=2018-10-12`。
+//! 必填：`FormatType=text`、`SourceLanguage`、`TargetLanguage`、`SourceText`、`Scene=general`。
+//! 单次不超过 5000 字符。成功时 `Code` 为整数 `200`，译文在 `Data.Translated`。
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result};
 use hmac::{Hmac, Mac};
 use serde_json::Value;
 use sha1::Sha1;
@@ -13,6 +17,9 @@ use urlencoding::encode;
 use crate::services::translate::{SingleResult, Translator};
 
 type HmacSha1 = Hmac<Sha1>;
+
+const ENDPOINT: &str = "https://mt.aliyuncs.com/";
+const MAX_CHARS: usize = 5000;
 
 pub struct AliyunTranslator {
     access_key_id: String,
@@ -41,26 +48,65 @@ impl Translator for AliyunTranslator {
         target: &str,
         source_hint: Option<&str>,
     ) -> Result<SingleResult> {
+        let source = aliyun_lang(source_hint.unwrap_or("auto"));
+        let target = aliyun_lang(target);
+        if target == "auto" {
+            anyhow::bail!("阿里翻译目标语言不能为 auto");
+        }
+        let mut out = String::new();
+        let mut detected = None;
+        for chunk in split_chars(text, MAX_CHARS) {
+            let v = self.translate_chunk(&chunk, source, target)?;
+            let code = json_code(&v);
+            if code.as_deref() != Some("200") {
+                let msg = v["Message"].as_str().unwrap_or("未知错误");
+                anyhow::bail!("阿里翻译错误 {}: {msg}", code.unwrap_or_else(|| "?".into()));
+            }
+            if let Some(t) = v["Data"]["Translated"].as_str() {
+                if !out.is_empty() && !out.ends_with('\n') && !t.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(t);
+            }
+            if detected.is_none() {
+                detected = v["Data"]["DetectedLanguage"].as_str().map(str::to_string);
+            }
+        }
+        if out.is_empty() {
+            anyhow::bail!("阿里响应无译文");
+        }
+        Ok(SingleResult {
+            backend: self.name().to_string(),
+            text: out,
+            source_lang: detected,
+            elapsed_ms: 0,
+            ok: true,
+            error: None,
+            pending: false,
+        })
+    }
+}
+
+impl AliyunTranslator {
+    fn translate_chunk(&self, text: &str, source: &str, target: &str) -> Result<Value> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
         let timestamp = format_iso8601(now as i64);
-        let nonce = format!("{now}");
-        let source = aliyun_lang(source_hint.unwrap_or("auto"));
-        let target = aliyun_lang(target);
-
+        let nonce = uuid::Uuid::new_v4().to_string();
         let mut params: Vec<(String, String)> = vec![
             ("AccessKeyId".into(), self.access_key_id.clone()),
             ("Action".into(), "TranslateGeneral".into()),
             ("Format".into(), "JSON".into()),
             ("FormatType".into(), "text".into()),
+            ("Scene".into(), "general".into()),
             ("SignatureMethod".into(), "HMAC-SHA1".into()),
             ("SignatureNonce".into(), nonce),
             ("SignatureVersion".into(), "1.0".into()),
-            ("SourceLanguage".into(), source.into()),
+            ("SourceLanguage".into(), source.to_string()),
             ("SourceText".into(), text.to_string()),
-            ("TargetLanguage".into(), target.into()),
+            ("TargetLanguage".into(), target.to_string()),
             ("Timestamp".into(), timestamp),
             ("Version".into(), "2018-10-12".into()),
         ];
@@ -70,7 +116,11 @@ impl Translator for AliyunTranslator {
             .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
             .collect::<Vec<_>>()
             .join("&");
-        let string_to_sign = format!("GET&{}&{}", percent_encode("/"), percent_encode(&canonical));
+        let string_to_sign = format!(
+            "POST&{}&{}",
+            percent_encode("/"),
+            percent_encode(&canonical)
+        );
         let key = format!("{}&", self.access_key_secret);
         let mut mac = HmacSha1::new_from_slice(key.as_bytes()).expect("HMAC");
         mac.update(string_to_sign.as_bytes());
@@ -78,42 +128,48 @@ impl Translator for AliyunTranslator {
             &base64::engine::general_purpose::STANDARD,
             mac.finalize().into_bytes(),
         );
-
-        let url = format!(
-            "https://mt.aliyuncs.com/?{}&Signature={}",
-            canonical,
-            percent_encode(&sig)
-        );
-        let v: Value = self
-            .agent
-            .get(url)
-            .call()
+        params.push(("Signature".into(), sig));
+        let form: Vec<(&str, &str)> = params
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        self.agent
+            .post(ENDPOINT)
+            .send_form(form)
             .context("请求阿里翻译失败")?
             .body_mut()
             .read_json()
-            .context("解析阿里翻译响应失败")?;
-        if let Some(msg) = v["Message"].as_str().filter(|s| !s.is_empty())
-            && v["Code"].as_str().unwrap_or("") != "200"
-            && v["Data"].is_null()
-        {
-            anyhow::bail!("阿里翻译错误: {msg}");
-        }
-        let text = v["Data"]["Translated"]
-            .as_str()
-            .ok_or_else(|| anyhow!("阿里响应无译文: {v}"))?
-            .to_string();
-        Ok(SingleResult {
-            backend: self.name().to_string(),
-            text,
-            source_lang: v["Data"]["DetectedLanguage"]
-                .as_str()
-                .map(|s| s.to_string()),
-            elapsed_ms: 0,
-            ok: true,
-            error: None,
-            pending: false,
-        })
+            .context("解析阿里翻译响应失败")
     }
+}
+
+fn json_code(v: &Value) -> Option<String> {
+    v.get("Code").and_then(|c| {
+        c.as_i64()
+            .map(|n| n.to_string())
+            .or_else(|| c.as_str().map(str::to_string))
+    })
+}
+
+fn split_chars(text: &str, max_chars: usize) -> Vec<String> {
+    if text.chars().count() <= max_chars {
+        return vec![text.to_string()];
+    }
+    let mut out = Vec::new();
+    let mut buf = String::new();
+    let mut n = 0usize;
+    for ch in text.chars() {
+        if n >= max_chars {
+            out.push(std::mem::take(&mut buf));
+            n = 0;
+        }
+        buf.push(ch);
+        n += 1;
+    }
+    if !buf.is_empty() {
+        out.push(buf);
+    }
+    out
 }
 
 fn aliyun_lang(code: &str) -> &'static str {
@@ -122,12 +178,21 @@ fn aliyun_lang(code: &str) -> &'static str {
         "zh" | "zh-cn" | "zh-hans" => "zh",
         "zh-tw" | "zh-hant" => "zh-tw",
         "en" | "en-us" | "en-gb" => "en",
-        "ja" => "ja",
-        "ko" => "ko",
-        "fr" => "fr",
-        "de" => "de",
-        "es" => "es",
-        "ru" => "ru",
+        "ja" | "ja-jp" => "ja",
+        "ko" | "ko-kr" => "ko",
+        "fr" | "fr-fr" => "fr",
+        "de" | "de-de" => "de",
+        "es" | "es-es" => "es",
+        "ru" | "ru-ru" => "ru",
+        "pt" | "pt-br" => "pt",
+        "it" => "it",
+        "vi" => "vi",
+        "th" => "th",
+        "id" => "id",
+        "ar" => "ar",
+        "tr" => "tr",
+        "ms" => "ms",
+        "hi" => "hi",
         _ => "auto",
     }
 }

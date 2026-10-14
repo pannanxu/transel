@@ -68,10 +68,8 @@ fn translate_macos(text: &str, target: &str, source_hint: Option<&str>) -> Resul
     }
     let app = ensure_helper()?;
     let seq = HELPER_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let work = crate::app::paths::cache_dir().join(format!(
-        "apple-translate/run-{}-{seq}",
-        std::process::id()
-    ));
+    let work = crate::app::paths::cache_dir()
+        .join(format!("apple-translate/run-{}-{seq}", std::process::id()));
     std::fs::create_dir_all(&work)?;
     let in_path = work.join("in.txt");
     let out_path = work.join("out.txt");
@@ -99,10 +97,7 @@ fn translate_macos(text: &str, target: &str, source_hint: Option<&str>) -> Resul
             .to_string();
         let _ = std::fs::remove_dir_all(&work);
         if err.is_empty() {
-            anyhow::bail!(
-                "Apple 翻译失败（退出码 {}）",
-                status.code().unwrap_or(-1)
-            );
+            anyhow::bail!("Apple 翻译失败（退出码 {}）", status.code().unwrap_or(-1));
         }
         anyhow::bail!("Apple 翻译失败: {err}");
     }

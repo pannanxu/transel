@@ -6,33 +6,34 @@ mod view;
 pub use commands::init_keybindings;
 pub use view::{HistoryActions, HistoryView};
 
+use std::sync::Arc;
+
 use gpui_kit::*;
 
 use crate::app::state::AppState;
-use crate::shared::chrome::window_background;
 use crate::shared::tokens::{HISTORY_SIZE, UTILITY_ORIGIN_X, UTILITY_ORIGIN_Y};
-use crate::shell::window::{PopupWindowOpts, open_root_window};
+use crate::shell::window::open_document_window;
 
 pub fn open(cx: &mut App) {
     let old = cx.global_mut::<AppState>().history_window.lock().take();
     if let Some(h) = old {
         let _ = h.update(cx, |_, window, _| window.remove_window());
     }
-    let state = cx.global::<AppState>();
-    let entries = state.history.list().unwrap_or_default();
-    let opts = PopupWindowOpts {
-        bounds: Bounds::new(
-            point(px(UTILITY_ORIGIN_X), px(UTILITY_ORIGIN_Y)),
-            size(px(HISTORY_SIZE.0), px(HISTORY_SIZE.1)),
-        ),
-        display_id: None,
-        focus: true,
-        movable: true,
-        resizable: true,
-        background: window_background(),
+    let history = cx.global::<AppState>().history.clone();
+    let entries = history.list().unwrap_or_default();
+    let hist_for_clear = history.clone();
+    let bounds = Bounds::new(
+        point(px(UTILITY_ORIGIN_X), px(UTILITY_ORIGIN_Y)),
+        size(px(HISTORY_SIZE.0), px(HISTORY_SIZE.1)),
+    );
+    let actions = HistoryActions {
+        on_clear: Arc::new(move || {
+            let _ = hist_for_clear.clear();
+        }),
+        ..HistoryActions::default()
     };
-    match open_root_window(cx, opts, move |window, cx| {
-        cx.new(|cx| HistoryView::new(entries, Default::default(), window, cx))
+    match open_document_window(cx, "历史", bounds, move |window, cx| {
+        cx.new(|cx| HistoryView::new(entries, actions, window, cx))
     }) {
         Ok(handle) => {
             *cx.global_mut::<AppState>().history_window.lock() = Some(handle);

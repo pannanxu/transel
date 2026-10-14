@@ -19,7 +19,7 @@ use gpui_kit::component::shimmer::ShimmerText;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-/// 翻译窗尺寸变化（内容增高、语言菜单展开等）过渡时长。
+/// 窗口高度变化过渡时长。
 const RESIZE_DURATION: Duration = Duration::from_millis(180);
 
 struct ResizeAnim {
@@ -55,8 +55,8 @@ const HEADER_H: f32 = 24.;
 const GAP: f32 = 10.;
 const SOURCE_SIZE: f32 = 13.;
 const SOURCE_LINE: f32 = 20.;
-const SOURCE_MIN_ROWS: usize = 3;
-const SOURCE_MAX_ROWS: usize = 10;
+/// 原文输入固定行数；超出后在框内滚动，不撑高窗口。
+const SOURCE_ROWS: usize = 3;
 const BODY_SIZE: f32 = 15.;
 const BODY_LINE: f32 = 22.;
 
@@ -124,11 +124,10 @@ pub struct TranslatePopup {
     /// 各翻译通道是否展开（按 backend 名）；缺省视为展开
     channel_open: HashMap<String, bool>,
     request_id: u64,
+    /// 内容高度已顶到屏上限：窗口不再跟内容收，正文区滚动。
+    height_capped: bool,
     pending_resize: Option<Size<Pixels>>,
-    /// 窗口尺寸过渡；有值时在 render 里按帧插值 `window.resize`
     resize_anim: Option<ResizeAnim>,
-    /// 内容自然高度已顶到屏高上限 → 外层正文区才滚动
-    outer_scroll: bool,
     drag: Option<crate::platform::ManualDrag>,
     was_active: bool,
     /// 拆词后把处理后的文本写回输入框（需在有 Window 时执行）
@@ -155,7 +154,7 @@ impl TranslatePopup {
         };
         let source_input = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(SOURCE_MIN_ROWS, SOURCE_MAX_ROWS)
+                .auto_grow(SOURCE_ROWS, SOURCE_ROWS)
                 .submit_on_enter(true)
                 .placeholder("输入要翻译的文字，回车翻译（Shift+回车换行）")
                 .default_value(initial)
@@ -184,15 +183,11 @@ impl TranslatePopup {
                 }
                 InputEvent::Focus | InputEvent::Blur => {
                     this.source_input.update(cx, |input, cx| {
-                        input.set_auto_grow(SOURCE_MIN_ROWS, SOURCE_MAX_ROWS, cx);
+                        input.set_auto_grow(SOURCE_ROWS, SOURCE_ROWS, cx);
                     });
-                    this.schedule_resize_from_content(cx);
                     cx.notify();
                 }
-                InputEvent::Change => {
-                    this.schedule_resize_from_content(cx);
-                    cx.notify();
-                }
+                InputEvent::Change => cx.notify(),
             }
         });
         let source_focused = matches!(mode, Mode::Input { .. });
@@ -206,8 +201,6 @@ impl TranslatePopup {
                 this.set_lang(*side, code.clone(), cx);
             }
         });
-        // 与打开窗口时的 content_size 对齐，避免首帧 outer_scroll 错误。
-        let initial_layout = layout_for_mode(cx, &mode, None);
         let focus = cx.focus_handle();
         if !source_focused {
             focus.focus(window, cx);
@@ -228,9 +221,9 @@ impl TranslatePopup {
             lang_dir,
             channel_open: HashMap::new(),
             request_id: 0,
+            height_capped: false,
             pending_resize: None,
             resize_anim: None,
-            outer_scroll: initial_layout.outer_scroll,
             pending_input_replace: None,
             drag: None,
             was_active: false,
@@ -238,12 +231,36 @@ impl TranslatePopup {
         }
     }
 
-    fn apply_layout(&mut self, layout: PopupLayout) {
-        self.outer_scroll = layout.outer_scroll;
-        self.pending_resize = Some(layout.size);
+    /// 卡片自然高度出来后，窗口跟它走，只封顶到屏高上限。
+    fn snap_window_to_card(&mut self, card_h: f32, window: &mut Window, cx: &mut Context<Self>) {
+        if card_h < 1. {
+            return;
+        }
+        // 已封顶时量到的是视口高度，不能用来关滚动；折叠会先 uncapped 再量。
+        if self.height_capped {
+            return;
+        }
+        let max_h = screen_limits_from_app(cx, None).max_window_h;
+        let want = (card_h + SHADOW_MARGIN * 2.).max(96.);
+        let h = want.min(max_h);
+        let cur = window.bounds().size;
+        let target = size(cur.width, px(h));
+        let cap = want > max_h + 1.;
+        let already = self
+            .pending_resize
+            .map(|p| size_near(p, target))
+            .unwrap_or_else(|| size_near(cur, target));
+        if !already {
+            self.pending_resize = Some(target);
+        }
+        if cap != self.height_capped {
+            self.height_capped = cap;
+            cx.notify();
+        } else if !already {
+            window.request_animation_frame();
+        }
     }
 
-    /// 应用待处理的尺寸目标：所有增高/收矮都走短过渡，避免弹一下。
     fn tick_resize(&mut self, window: &mut Window, cx: &App) {
         if let Some(to) = self.pending_resize.take() {
             let from = self
@@ -269,7 +286,6 @@ impl TranslatePopup {
                 });
             }
         }
-
         let Some(anim) = self.resize_anim.as_ref() else {
             return;
         };
@@ -286,22 +302,8 @@ impl TranslatePopup {
     }
 
     pub fn schedule_resize_from_content(&mut self, cx: &mut Context<Self>) {
-        // 以输入框当前原文为准估算高度，避免 auto-grow 后窗口仍按旧单行高度裁切。
-        let source = self.source_input.read(cx).value().to_string();
-        let limits = screen_limits_from_app(cx, None);
-        let layout = match &self.mode {
-            Mode::Batch(b) => estimate_batch_layout(&source, b, limits, &self.channel_open),
-            Mode::Input { .. } => estimate_layout(&source, "输入要翻译的文字", 0, limits),
-            Mode::Loading(msg) => {
-                let mut layout = estimate_layout(&source, msg, 0, limits);
-                let h = layout.size.height.to_f64().max(96.) as f32;
-                layout.size.height = px(h);
-                layout
-            }
-            Mode::Error(_) => estimate_layout(&source, "错误", 0, limits),
-            Mode::NoPermission => layout_for_mode(cx, &self.mode, None),
-        };
-        self.apply_layout(layout);
+        self.height_capped = false;
+        cx.notify();
     }
 
     fn is_channel_open(&self, backend: &str) -> bool {
@@ -506,14 +508,6 @@ impl TranslatePopup {
                         BatchEvent::Progress(r) => {
                             if let Mode::Batch(b) = &mut this.mode {
                                 b.apply_progress(r);
-                                let limits = screen_limits_from_app(cx, None);
-                                let layout = estimate_batch_layout(
-                                    &this.source_input.read(cx).value(),
-                                    b,
-                                    limits,
-                                    &this.channel_open,
-                                );
-                                this.apply_layout(layout);
                                 cx.notify();
                             }
                             true
@@ -593,12 +587,12 @@ impl TranslatePopup {
         (self.actions.on_favorite)(source, translation, backend);
     }
 
-    /// 更新展示模式，并在下次渲染时按内容重算窗口大小。
+    /// 更新展示模式，并在下次渲染时按实测内容收窗口。
     pub fn apply_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
         self.mode = mode;
+        self.height_capped = false;
         self.sync_lang_dir(cx);
-        // Batch 用输入框原文 + 当前折叠状态，避免 content_size 忽略 channel_open。
-        self.schedule_resize_from_content(cx);
+        cx.notify();
     }
 
     /// 固定窗口上发起新翻译：原地换内容，不关窗、不跟鼠标跳走。
@@ -652,6 +646,7 @@ fn compact_icon_button(
     icon_button_sized(id, icon, color, hover, tip, 16., 10., 4.)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn icon_button_sized(
     id: impl Into<ElementId>,
     icon: &'static str,
@@ -692,19 +687,8 @@ fn text_width(s: &str, font: f32) -> f32 {
         * font
 }
 
-fn line_count(s: &str, font: f32, width: f32) -> f32 {
-    s.lines()
-        .map(|l| (text_width(l, font) / width).ceil().max(1.))
-        .sum::<f32>()
-        .max(1.)
-}
-
-fn source_input_height(source: &str) -> f32 {
-    let rows = source
-        .lines()
-        .count()
-        .clamp(SOURCE_MIN_ROWS, SOURCE_MAX_ROWS) as f32;
-    rows * SOURCE_LINE + 16.
+fn source_input_height() -> f32 {
+    SOURCE_ROWS as f32 * SOURCE_LINE + 8.
 }
 
 fn lerp_size(from: Size<Pixels>, to: Size<Pixels>, t: f32) -> Size<Pixels> {
@@ -749,22 +733,30 @@ fn screen_limits_from_app(cx: &App, mouse: Option<(f32, f32)>) -> ScreenLimits {
             (f32::from(b.size.width), f32::from(b.size.height))
         })
         .unwrap_or((1280., 800.));
-    // 宽度：最多占屏宽 70%，且不超过 MAX_W；高度：不超过屏高约 88%，留边距
+    // 宽度：最多占屏宽 70%，且不超过 MAX_W；高度：上下都留空，避免贴底。
     let max_content_w = (sw * 0.7 - SHADOW_MARGIN * 2.).clamp(MIN_W, MAX_W);
-    let max_window_h = (sh * 0.88).max(280.).min(sh - 24.);
+    let max_window_h = popup_max_h(sh);
     ScreenLimits {
         max_content_w,
         max_window_h,
     }
 }
 
-/// 窗口目标尺寸 + 是否需要外层滚动（仅顶到屏高上限时）。
-struct PopupLayout {
-    size: Size<Pixels>,
-    outer_scroll: bool,
+/// 相对屏顶的偏移：再靠上一些。
+fn popup_top_gap(sh: f32) -> f32 {
+    (sh * 0.10).max(36.)
 }
 
-/// 按原文 + 译文体量估算卡片内容宽度。
+/// 贴底留白：到最大高度时下面仍露出桌面。
+fn popup_bottom_gap(sh: f32) -> f32 {
+    (sh * 0.10).max(48.)
+}
+
+fn popup_max_h(sh: f32) -> f32 {
+    (sh - popup_top_gap(sh) - popup_bottom_gap(sh)).max(280.)
+}
+
+/// 按原文 + 译文体量估算卡片内容宽度（仅首帧开窗用）。
 fn estimate_content_width(texts: &[&str], limits: ScreenLimits) -> f32 {
     let max_line = texts
         .iter()
@@ -786,95 +778,10 @@ fn estimate_content_width(texts: &[&str], limits: ScreenLimits) -> f32 {
         .clamp(MIN_W, limits.max_content_w)
 }
 
-/// 卡片 chrome：padding + header + source + 分隔线 + 三段 gap（与 render 一致）。
-fn chrome_h(source_h: f32) -> f32 {
-    PAD * 2. + HEADER_H + source_h + 1. + GAP * 3.
-}
-
-fn clamp_window_layout(content_w: f32, natural_h: f32, limits: ScreenLimits) -> PopupLayout {
-    let natural_window_h = natural_h + SHADOW_MARGIN * 2.;
-    let window_h = natural_window_h.min(limits.max_window_h).max(160.);
-    PopupLayout {
-        size: size(px(content_w + SHADOW_MARGIN * 2.), px(window_h)),
-        // 只有自然高度超过屏上限才需要外层滚动条
-        outer_scroll: natural_window_h > limits.max_window_h + 0.5,
-    }
-}
-
-fn estimate_layout(source: &str, body: &str, tabs: usize, limits: ScreenLimits) -> PopupLayout {
-    let content_w = estimate_content_width(&[source, body], limits);
-    let inner = content_w - PAD * 2.;
-    let source_h = source_input_height(source);
-    let body_h = line_count(body, BODY_SIZE, inner) * BODY_LINE + 4. + 24. * (tabs.max(1) as f32);
-    clamp_window_layout(content_w, chrome_h(source_h) + body_h, limits)
-}
-
 /// 通道卡片内边距 / 标题栏 / 卡片间距（与 render_batch 保持一致）。
 const CHANNEL_CARD_PAD: f32 = 6.;
 const CHANNEL_HEADER_H: f32 = 20.;
 const CHANNEL_CARD_GAP: f32 = 8.;
-/// Collapsible gap + 分隔线 + content gap（展开时）。
-const CHANNEL_OPEN_CHROME: f32 = 6. + 1. + 6.;
-/// 单通道正文区最大高度，超出后该通道内部滚动。
-const CHANNEL_BODY_MAX_H: f32 = 240.;
-
-/// 通道正文自然高度（未封顶）。略高于纯文本行高，贴合 Markdown 排版。
-fn channel_body_natural_h(text: &str, inner_w: f32) -> f32 {
-    let lines = line_count(text, BODY_SIZE, inner_w);
-    (4. + lines * BODY_LINE * 1.2).max(BODY_LINE)
-}
-
-/// 多通道：宽度只跟原文；高度按折叠态累加，通道正文封顶后计入。
-fn estimate_batch_layout(
-    source: &str,
-    b: &BatchResult,
-    limits: ScreenLimits,
-    channel_open: &HashMap<String, bool>,
-) -> PopupLayout {
-    let content_w = estimate_content_width(&[source], limits);
-    let inner = (content_w - PAD * 2. - CHANNEL_CARD_PAD * 2.).max(120.);
-    let source_h = source_input_height(source);
-    let mut body_h = 0.;
-    let n = b.results.len();
-    for r in &b.results {
-        let open = channel_open.get(&r.backend).copied().unwrap_or(true);
-        body_h += CHANNEL_CARD_PAD * 2. + CHANNEL_HEADER_H;
-        if open {
-            let text = if !r.text.is_empty() {
-                r.text.as_str()
-            } else if r.pending {
-                "翻译中…"
-            } else {
-                r.error.as_deref().unwrap_or("错误")
-            };
-            body_h +=
-                CHANNEL_OPEN_CHROME + channel_body_natural_h(text, inner).min(CHANNEL_BODY_MAX_H);
-        }
-    }
-    if n > 1 {
-        body_h += CHANNEL_CARD_GAP * (n - 1) as f32;
-    }
-    if n == 0 {
-        body_h = BODY_LINE;
-    }
-    clamp_window_layout(content_w, chrome_h(source_h) + body_h, limits)
-}
-
-fn layout_for_mode(cx: &App, mode: &Mode, mouse: Option<(f32, f32)>) -> PopupLayout {
-    let limits = screen_limits_from_app(cx, mouse);
-    match mode {
-        Mode::Loading(msg) => {
-            let mut layout = estimate_layout("", msg, 0, limits);
-            let h = layout.size.height.to_f64().max(96.) as f32;
-            layout.size.height = px(h);
-            layout
-        }
-        Mode::Error(_) => estimate_layout("", "错误", 0, limits),
-        Mode::NoPermission => estimate_layout("无法读取选区", PERMISSION_TEXT, 0, limits),
-        Mode::Input { text } => estimate_layout(text, "输入要翻译的文字", 0, limits),
-        Mode::Batch(b) => estimate_batch_layout(&b.prepared, b, limits, &HashMap::new()),
-    }
-}
 
 pub fn content_size(
     cx: &App,
@@ -882,7 +789,18 @@ pub fn content_size(
     _target_lang: &str,
     mouse: Option<(f32, f32)>,
 ) -> Size<Pixels> {
-    layout_for_mode(cx, mode, mouse).size
+    let limits = screen_limits_from_app(cx, mouse);
+    let text: &str = match mode {
+        Mode::Input { text } => text,
+        Mode::Batch(b) => &b.prepared,
+        Mode::Loading(msg) | Mode::Error(msg) => msg,
+        Mode::NoPermission => PERMISSION_TEXT,
+    };
+    let w = estimate_content_width(&[text], limits);
+    size(
+        px(w + SHADOW_MARGIN * 2.),
+        px(200f32.min(limits.max_window_h)),
+    )
 }
 
 impl Render for TranslatePopup {
@@ -914,6 +832,7 @@ impl Render for TranslatePopup {
             .id("popup_header")
             .flex()
             .flex_row()
+            .flex_shrink_0()
             .items_center()
             .h(px(HEADER_H))
             .gap(px(8.))
@@ -1013,9 +932,11 @@ impl Render for TranslatePopup {
         let source_line = div()
             .id("source_input_wrap")
             .w_full()
-            .min_h(px(SOURCE_MIN_ROWS as f32 * SOURCE_LINE + 16.))
-            .px(px(10.))
-            .py(px(8.))
+            .flex_shrink_0()
+            .h(px(source_input_height()))
+            .overflow_hidden()
+            .px(px(6.))
+            .py(px(4.))
             .rounded(px(8.))
             .bg(p.pill_bg)
             .cursor_text()
@@ -1038,9 +959,50 @@ impl Render for TranslatePopup {
                     .text_color(p.text),
             );
 
+        let stack = div()
+            .id("popup_stack")
+            .w_full()
+            .flex()
+            .flex_col()
+            .flex_shrink_0()
+            .gap(px(GAP))
+            .when(show_source, |el| el.child(source_line))
+            .when(show_source, |el| {
+                el.child(div().h(px(1.)).w_full().flex_shrink_0().bg(p.divider))
+            })
+            .child(main);
+
+        let on_activate = cx.listener(|_, _, window, _cx| {
+            window.activate_window();
+        });
+        let body = if self.height_capped {
+            div()
+                .id("popup_body")
+                .w_full()
+                .min_w(px(0.))
+                .flex_1()
+                .min_h(px(0.))
+                .overflow_y_scrollbar()
+                .cursor_text()
+                .on_mouse_down(MouseButton::Left, on_activate)
+                .child(stack)
+                .into_any_element()
+        } else {
+            div()
+                .id("popup_body")
+                .w_full()
+                .min_w(px(0.))
+                .flex_shrink_0()
+                .cursor_text()
+                .on_mouse_down(MouseButton::Left, on_activate)
+                .child(stack)
+                .into_any_element()
+        };
+
         let card = div()
             .id("card")
-            .size_full()
+            .w_full()
+            .when(self.height_capped, |el| el.h_full().overflow_hidden())
             .flex()
             .flex_col()
             .gap(px(GAP))
@@ -1061,39 +1023,9 @@ impl Render for TranslatePopup {
             .font_family(".SystemUIFont")
             .cursor_default()
             .child(header)
-            .when(show_source, |el| el.child(source_line))
-            .when(show_source, |el| {
-                el.child(div().h(px(1.)).w_full().bg(p.divider))
-            })
-            .child({
-                // 仅当窗口已顶到屏高上限时，外层才滚动；否则随内容自然高度，不挂滚动条。
-                let on_activate = cx.listener(|_, _, window, _cx| {
-                    window.activate_window();
-                });
-                if self.outer_scroll {
-                    div()
-                        .id("popup_body")
-                        .w_full()
-                        .min_w(px(0.))
-                        .flex_1()
-                        .min_h(px(0.))
-                        .overflow_y_scrollbar()
-                        .cursor_text()
-                        .on_mouse_down(MouseButton::Left, on_activate)
-                        .child(main)
-                        .into_any_element()
-                } else {
-                    div()
-                        .id("popup_body")
-                        .w_full()
-                        .min_w(px(0.))
-                        .cursor_text()
-                        .on_mouse_down(MouseButton::Left, on_activate)
-                        .child(main)
-                        .into_any_element()
-                }
-            });
+            .child(body);
 
+        let view = cx.entity();
         div()
             .id("popup")
             .key_context(crate::shared::actions::POPUP_KEY_CONTEXT)
@@ -1106,7 +1038,20 @@ impl Render for TranslatePopup {
             .on_action(cx.listener(Self::on_copy_result))
             .size_full()
             .p(px(SHADOW_MARGIN))
-            .child(card)
+            .child(
+                div()
+                    .w_full()
+                    .when(self.height_capped, |el| el.h_full())
+                    .on_children_prepainted(move |bounds, window, cx| {
+                        let Some(b) = bounds.first() else {
+                            return;
+                        };
+                        view.update(cx, |this, cx| {
+                            this.snap_window_to_card(f32::from(b.size.height), window, cx);
+                        });
+                    })
+                    .child(card),
+            )
     }
 }
 
@@ -1202,28 +1147,12 @@ impl TranslatePopup {
                 .into_any_element();
         }
 
-        // 与 estimate_batch_layout 使用同一套宽度，保证「是否滚动」判断一致。
-        let limits = screen_limits_from_app(cx, None);
-        let source = self.source_input.read(cx).value();
-        let content_w = estimate_content_width(&[&source], limits);
-        let inner_w = (content_w - PAD * 2. - CHANNEL_CARD_PAD * 2.).max(120.);
-
         // 卡片 + Collapsible 展开动画；左侧通道 icon，右侧 chevron。
         let mut cards: Vec<AnyElement> = Vec::new();
         for (i, r) in b.results.iter().enumerate() {
             let open = self.is_channel_open(&r.backend);
             let icon = icons::channel_icon(&r.backend);
             let name_color = if r.ok || r.pending { p.title } else { p.danger };
-
-            let body_text = if !r.text.is_empty() {
-                r.text.as_str()
-            } else if r.pending {
-                "翻译中…"
-            } else {
-                r.error.as_deref().unwrap_or("未知错误")
-            };
-            let natural_h = channel_body_natural_h(body_text, inner_w);
-            let overflow = natural_h > CHANNEL_BODY_MAX_H + 0.5;
 
             let body = if r.pending && r.text.is_empty() {
                 loading::loading_row_with_id(
@@ -1250,25 +1179,12 @@ impl TranslatePopup {
                 )
             };
 
-            // 未超高：自然高度、无滚动条。超高：固定视口 + 滚动条。
-            let body_scroll = if overflow {
-                div()
-                    .id(SharedString::from(format!("batch_body_scroll_{i}")))
-                    .w_full()
-                    .min_w(px(0.))
-                    .overflow_x_hidden()
-                    .h(px(CHANNEL_BODY_MAX_H))
-                    .overflow_y_scrollbar()
-                    .child(body)
-                    .into_any_element()
-            } else {
-                div()
-                    .w_full()
-                    .min_w(px(0.))
-                    .overflow_x_hidden()
-                    .child(body)
-                    .into_any_element()
-            };
+            let body_scroll = div()
+                .w_full()
+                .min_w(px(0.))
+                .overflow_x_hidden()
+                .flex_shrink_0()
+                .child(body);
 
             let backend = r.backend.clone();
             let header = div()
@@ -1323,8 +1239,7 @@ impl TranslatePopup {
                         .gap(px(1.))
                         .flex_shrink_0()
                         .child({
-                            let copied =
-                                self.copied_channel.as_deref() == Some(r.backend.as_str());
+                            let copied = self.copied_channel.as_deref() == Some(r.backend.as_str());
                             let text = r.text.clone();
                             let backend = r.backend.clone();
                             let enabled = r.ok && !text.is_empty();
@@ -1422,6 +1337,7 @@ impl TranslatePopup {
                     .id(SharedString::from(format!("batch_card_{i}")))
                     .w_full()
                     .min_w(px(0.))
+                    .flex_shrink_0()
                     .overflow_x_hidden()
                     .px(px(CHANNEL_CARD_PAD))
                     .py(px(CHANNEL_CARD_PAD))
@@ -1455,6 +1371,7 @@ impl TranslatePopup {
             .w_full()
             .flex()
             .flex_col()
+            .flex_shrink_0()
             .gap(px(CHANNEL_CARD_GAP))
             .children(cards)
             .into_any_element()
@@ -1496,28 +1413,28 @@ pub fn popup_bounds(
     let (sw, sh) = (f32::from(screen.size.width), f32::from(screen.size.height));
     let (right, bottom) = (left + sw, top + sh);
 
+    let top_gap = popup_top_gap(sh);
+    let bottom_gap = popup_bottom_gap(sh);
     let (mut x, mut y) = if follow_mouse {
         if let Some((mx, my)) = mouse {
             (mx + 8., my + 14.)
         } else {
-            // 开启跟随但拿不到鼠标：退回中上方
-            (left + (sw - w) / 2., top + (sh * 0.18).max(24.))
+            (left + (sw - w) / 2., top + top_gap)
         }
     } else {
-        // 水平居中、垂直偏上（约屏高 18%）
-        (left + (sw - w) / 2., top + (sh * 0.18).max(24.))
+        (left + (sw - w) / 2., top + top_gap)
     };
 
     if let Some(d) = display {
         id = Some(d.id());
         if follow_mouse
             && let Some((_mx, my)) = mouse
-            && y + h.max(220.) > bottom
+            && y + h.max(220.) > bottom - bottom_gap
         {
             y = my - h.max(220.) - 8.;
         }
         x = x.min(right - w - 4.).max(left + 4.);
-        y = y.min(bottom - h - 4.).max(top + 4.);
+        y = y.min(bottom - h - bottom_gap).max(top + top_gap);
     }
     (Bounds::new(point(px(x), px(y)), size), id)
 }

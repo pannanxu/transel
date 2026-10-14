@@ -37,6 +37,7 @@ pub fn now_unix() -> i64 {
 }
 
 /// 腾讯云 TC3：`POST https://{host}/` JSON。
+#[allow(clippy::too_many_arguments)]
 pub fn tencent_json(
     agent: &ureq::Agent,
     secret_id: &str,
@@ -52,12 +53,12 @@ pub fn tencent_json(
     let date = utc_ymd(ts);
     let algorithm = "TC3-HMAC-SHA256";
     let hashed = sha256_hex(payload.as_bytes());
-    let canonical_headers =
-        format!("content-type:application/json; charset=utf-8\nhost:{host}\nx-tc-action:{}\n", action.to_ascii_lowercase());
-    let signed_headers = "content-type;host;x-tc-action";
-    let canonical_request = format!(
-        "POST\n/\n\n{canonical_headers}\n{signed_headers}\n{hashed}"
+    let canonical_headers = format!(
+        "content-type:application/json; charset=utf-8\nhost:{host}\nx-tc-action:{}\n",
+        action.to_ascii_lowercase()
     );
+    let signed_headers = "content-type;host;x-tc-action";
+    let canonical_request = format!("POST\n/\n\n{canonical_headers}\n{signed_headers}\n{hashed}");
     let credential_scope = format!("{date}/{service}/tc3_request");
     let sts = format!(
         "{algorithm}\n{ts}\n{credential_scope}\n{}",
@@ -96,6 +97,7 @@ fn amz_date(ts: i64) -> (String, String) {
 }
 
 /// AWS SigV4 JSON（Amazon Translate 等）。
+#[allow(clippy::too_many_arguments)]
 pub fn aws_json(
     agent: &ureq::Agent,
     access_key: &str,
@@ -113,8 +115,7 @@ pub fn aws_json(
         "content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-date:{amz}\nx-amz-target:{amz_target}\n"
     );
     let signed_headers = "content-type;host;x-amz-date;x-amz-target";
-    let canonical_request =
-        format!("POST\n/\n\n{canonical_headers}\n{signed_headers}\n{hashed}");
+    let canonical_request = format!("POST\n/\n\n{canonical_headers}\n{signed_headers}\n{hashed}");
     let scope = format!("{short}/{region}/{service}/aws4_request");
     let sts = format!(
         "AWS4-HMAC-SHA256\n{amz}\n{scope}\n{}",
@@ -143,6 +144,7 @@ pub fn aws_json(
 }
 
 /// 火山引擎 OpenAPI（Translate / Visual / TTS）。
+#[allow(clippy::too_many_arguments)]
 pub fn volcano_json(
     agent: &ureq::Agent,
     access_key: &str,

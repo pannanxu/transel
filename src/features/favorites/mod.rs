@@ -11,9 +11,8 @@ use std::sync::Arc;
 use gpui_kit::*;
 
 use crate::app::state::AppState;
-use crate::shared::chrome::window_background;
-use crate::shared::tokens::{FAVORITES_SIZE, UTILITY_ORIGIN_Y};
-use crate::shell::window::{PopupWindowOpts, open_root_window};
+use crate::shared::tokens::{FAVORITES_SIZE, UTILITY_ORIGIN_X, UTILITY_ORIGIN_Y};
+use crate::shell::window::open_document_window;
 
 pub fn open(cx: &mut App) {
     let old = cx.global_mut::<AppState>().favorites_window.lock().take();
@@ -26,40 +25,32 @@ pub fn open(cx: &mut App) {
     let fav_for_export = favorites.clone();
     let fav_for_remove = favorites.clone();
 
-    let opts = PopupWindowOpts {
-        bounds: Bounds::new(
-            point(px(220.), px(UTILITY_ORIGIN_Y)),
-            size(px(FAVORITES_SIZE.0), px(FAVORITES_SIZE.1)),
-        ),
-        display_id: None,
-        focus: true,
-        movable: true,
-        resizable: true,
-        background: window_background(),
+    let bounds = Bounds::new(
+        point(px(UTILITY_ORIGIN_X), px(UTILITY_ORIGIN_Y)),
+        size(px(FAVORITES_SIZE.0), px(FAVORITES_SIZE.1)),
+    );
+    let actions = FavoritesActions {
+        on_close: Arc::new(|| {}),
+        on_clear: Arc::new(move || {
+            let _ = fav_for_clear.clear();
+        }),
+        on_export: Arc::new(move || {
+            if let Ok(text) = fav_for_export.export_text()
+                && let Ok(mut cb) = arboard::Clipboard::new()
+            {
+                let _ = cb.set_text(text);
+            }
+        }),
+        on_remove: Arc::new(move |id| {
+            let _ = fav_for_remove.remove(&id);
+        }),
+        on_copy: Arc::new(|t| {
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                let _ = cb.set_text(t);
+            }
+        }),
     };
-
-    match open_root_window(cx, opts, move |window, cx| {
-        let actions = FavoritesActions {
-            on_close: Arc::new(|| {}),
-            on_clear: Arc::new(move || {
-                let _ = fav_for_clear.clear();
-            }),
-            on_export: Arc::new(move || {
-                if let Ok(text) = fav_for_export.export_text()
-                    && let Ok(mut cb) = arboard::Clipboard::new()
-                {
-                    let _ = cb.set_text(text);
-                }
-            }),
-            on_remove: Arc::new(move |id| {
-                let _ = fav_for_remove.remove(&id);
-            }),
-            on_copy: Arc::new(|t| {
-                if let Ok(mut cb) = arboard::Clipboard::new() {
-                    let _ = cb.set_text(t);
-                }
-            }),
-        };
+    match open_document_window(cx, "收藏", bounds, move |window, cx| {
         cx.new(|cx| FavoritesView::new(entries.clone(), actions, window, cx))
     }) {
         Ok(handle) => {

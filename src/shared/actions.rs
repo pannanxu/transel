@@ -28,6 +28,8 @@ actions!(
 
 pub const POPUP_KEY_CONTEXT: &str = "TranslatePopup";
 pub const UTILITY_KEY_CONTEXT: &str = "UtilityWindow";
+pub const OCR_KEY_CONTEXT: &str = "OcrWindow";
+pub const OVERLAY_KEY_CONTEXT: &str = "OverlayWindow";
 
 /// Esc + Cmd/Ctrl+W 关闭当前窗口。无标题 PopUp 吃不到系统菜单的 Close，必须自己绑。
 pub fn bind_window_close_keys(cx: &mut App, context: Option<&'static str>) {

@@ -31,9 +31,8 @@ impl Translator for GeminiTranslator {
         let src = source_hint
             .map(|s| format!(" Source language: {s}."))
             .unwrap_or_default();
-        let prompt = format!(
-            "Translate into {target}.{src} Output only the translation.\n\n{text}"
-        );
+        let prompt =
+            format!("Translate into {target}.{src} Output only the translation.\n\n{text}");
         let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
             self.model, self.key

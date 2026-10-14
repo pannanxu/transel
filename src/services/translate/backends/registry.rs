@@ -54,7 +54,8 @@ impl BackendRegistry {
         r.register(BackendKind::Aliyun, aliyun_builder);
         r.register(BackendKind::Apple, apple_builder);
         r.register(BackendKind::Dictionary, dictionary_builder);
-        r.register(BackendKind::Niutrans, niutrans_builder);
+        r.register(BackendKind::Niutrans, niutrans_flash_builder);
+        r.register(BackendKind::NiutransPro, niutrans_pro_builder);
         r.register(BackendKind::Amazon, amazon_builder);
         r.register(BackendKind::Claude, claude_builder);
         r.register(BackendKind::Gemini, gemini_builder);
@@ -118,7 +119,11 @@ fn openai_compat_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
         .get("auth")
         .cloned()
         .unwrap_or_else(|| "bearer".into());
-    let api_version = e.params.get("api_version").cloned().filter(|s| !s.is_empty());
+    let api_version = e
+        .params
+        .get("api_version")
+        .cloned()
+        .filter(|s| !s.is_empty());
     Some(Arc::new(OpenAiCompatTranslator::with_auth(
         display_name,
         base,
@@ -145,32 +150,34 @@ fn google_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
 
 fn baidu_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
     let app_id = e.params.get("app_id")?.clone();
-    let key = secrets::lookup_key(&e.params, "baidu")?;
+    let key = secrets::lookup_key(&e.params, &e.secret_account())
+        .or_else(|| secrets::lookup_key(&e.params, "baidu"))?;
     Some(Arc::new(BaiduTranslator::new(app_id, key, ureq_agent())))
 }
 
 fn youdao_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
     let app_id = e.params.get("app_id")?.clone();
-    let key = secrets::lookup_key(&e.params, "youdao")?;
+    let key = secrets::lookup_key(&e.params, &e.secret_account())
+        .or_else(|| secrets::lookup_key(&e.params, "youdao"))?;
     Some(Arc::new(YoudaoTranslator::new(app_id, key, ureq_agent())))
 }
 
 fn microsoft_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
-    let key = secrets::lookup_key(&e.params, "microsoft")?;
+    let key = secrets::lookup_key(&e.params, &e.secret_account())
+        .or_else(|| secrets::lookup_key(&e.params, "microsoft"))?;
     let region = e
         .params
         .get("region")
         .cloned()
-        .unwrap_or_else(|| "global".into());
-    let endpoint = e
-        .params
-        .get("endpoint")
-        .cloned()
-        .unwrap_or_else(|| "https://api.cognitive.microsofttranslator.com".into());
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "eastasia".into());
+    let endpoint = e.params.get("endpoint").cloned().unwrap_or_default();
+    let deployment = e.params.get("deployment").cloned();
     Some(Arc::new(MicrosoftTranslator::new(
         key,
         region,
         endpoint,
+        deployment,
         ureq_agent(),
     )))
 }
@@ -180,17 +187,24 @@ fn google_free_builder(_e: &BackendEntry) -> Option<Arc<dyn Translator>> {
 }
 
 fn caiyun_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
-    let key = secrets::lookup_key(&e.params, "caiyun")?;
+    let key = secrets::lookup_key(&e.params, &e.secret_account())
+        .or_else(|| secrets::lookup_key(&e.params, "caiyun"))?;
     Some(Arc::new(CaiyunTranslator::new(key, ureq_agent())))
 }
 
 fn volcano_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
-    let access_key = e.params.get("access_key")?.clone();
-    let secret = secrets::lookup_key(&e.params, "volcano")?;
+    let access_key = e
+        .params
+        .get("access_key")
+        .cloned()
+        .or_else(|| e.params.get("access_key_id").cloned())?;
+    let secret = secrets::lookup_key(&e.params, &e.secret_account())
+        .or_else(|| secrets::lookup_key(&e.params, "volcano"))?;
     let region = e
         .params
         .get("region")
         .cloned()
+        .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "cn-north-1".into());
     Some(Arc::new(VolcanoTranslator::new(
         access_key,
@@ -206,7 +220,8 @@ fn aliyun_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
         .get("access_key_id")
         .cloned()
         .or_else(|| e.params.get("access_key").cloned())?;
-    let secret = secrets::lookup_key(&e.params, "aliyun")?;
+    let secret = secrets::lookup_key(&e.params, &e.secret_account())
+        .or_else(|| secrets::lookup_key(&e.params, "aliyun"))?;
     Some(Arc::new(AliyunTranslator::new(
         access_key_id,
         secret,
@@ -222,9 +237,21 @@ fn dictionary_builder(_e: &BackendEntry) -> Option<Arc<dyn Translator>> {
     Some(Arc::new(DictionaryTranslator::new()))
 }
 
-fn niutrans_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
-    let key = secrets::lookup_key(&e.params, "niutrans")?;
-    Some(Arc::new(NiutransTranslator::new(key, ureq_agent())))
+fn niutrans_flash_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
+    let key = secrets::lookup_key(&e.params, &e.secret_account())
+        .or_else(|| secrets::lookup_key(&e.params, "niutrans"))?;
+    let app_id = e.params.get("app_id").cloned().unwrap_or_default();
+    Some(Arc::new(NiutransTranslator::flash(
+        app_id,
+        key,
+        ureq_agent(),
+    )))
+}
+
+fn niutrans_pro_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
+    let key = secrets::lookup_key(&e.params, &e.secret_account())
+        .or_else(|| secrets::lookup_key(&e.params, "niutrans"))?;
+    Some(Arc::new(NiutransTranslator::pro(key, ureq_agent())))
 }
 
 fn amazon_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {

@@ -43,7 +43,10 @@ impl Translator for DeepLTranslator {
         let v: Value = self
             .agent
             .post(format!("{}/v2/translate", self.host))
-            .header("Authorization", format!("DeepL-Auth-Key {}", self.key.trim()))
+            .header(
+                "Authorization",
+                format!("DeepL-Auth-Key {}", self.key.trim()),
+            )
             .header("Content-Type", "application/json")
             .send_json(Value::Object(body))
             .context("请求 DeepL 失败")?

@@ -193,7 +193,7 @@ pub fn finish_window(cx: &mut App, blocks: Vec<OverlayBlock>, image_w: f32, imag
                 .min(OVERLAY_MAX_H / image_h)
                 .clamp(0.35, 1.0);
             let win_w = (image_w * scale).clamp(360., 960.);
-            let win_h = (image_h * scale).clamp(280., 760.) + 36.;
+            let win_h = (image_h * scale).clamp(280., 760.) + 52.;
             let _ = h.update(cx, |_, window, _| {
                 window.resize(size(px(win_w), px(win_h)));
             });
@@ -216,7 +216,7 @@ pub fn open_window(
         .min(OVERLAY_MAX_H / image_h)
         .clamp(0.35, 1.0);
     let win_w = (image_w * scale).clamp(360., 960.);
-    let win_h = (image_h * scale).clamp(280., 760.) + 36.;
+    let win_h = (image_h * scale).clamp(280., 760.) + 52.;
 
     let opts = PopupWindowOpts {
         bounds: Bounds::new(point(px(160.), px(100.)), size(px(win_w), px(win_h))),

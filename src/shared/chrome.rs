@@ -88,6 +88,7 @@ pub struct EmptyState {
     title: SharedString,
     detail: Option<SharedString>,
     muted: bool,
+    centered: bool,
 }
 
 impl EmptyState {
@@ -96,6 +97,7 @@ impl EmptyState {
             title: title.into(),
             detail: None,
             muted: true,
+            centered: false,
         }
     }
 
@@ -108,6 +110,11 @@ impl EmptyState {
         self.muted = false;
         self
     }
+
+    pub fn centered(mut self) -> Self {
+        self.centered = true;
+        self
+    }
 }
 
 impl RenderOnce for EmptyState {
@@ -116,8 +123,15 @@ impl RenderOnce for EmptyState {
             .flex()
             .flex_col()
             .gap_2()
-            .items_start()
             .p_3()
+            .when(self.centered, |el| {
+                el.flex_1()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .text_center()
+            })
+            .when(!self.centered, |el| el.items_start())
             .child(
                 div()
                     .text_sm()
@@ -137,6 +151,136 @@ impl RenderOnce for EmptyState {
                         .child(d),
                 )
             })
+    }
+}
+
+/// 历史 / 收藏列表行：来源胶囊 + 语言 + 时间，下面原文 / 译文。
+#[derive(IntoElement)]
+pub struct RecordRow {
+    id: ElementId,
+    origin: SharedString,
+    langs: SharedString,
+    time: SharedString,
+    source: SharedString,
+    translation: SharedString,
+    translation_empty: bool,
+    trailing: Vec<AnyElement>,
+}
+
+impl RecordRow {
+    pub fn new(
+        id: impl Into<ElementId>,
+        origin: impl Into<SharedString>,
+        langs: impl Into<SharedString>,
+        time: impl Into<SharedString>,
+        source: impl Into<SharedString>,
+        translation: impl Into<SharedString>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            origin: origin.into(),
+            langs: langs.into(),
+            time: time.into(),
+            source: source.into(),
+            translation: translation.into(),
+            translation_empty: false,
+            trailing: Vec::new(),
+        }
+    }
+
+    pub fn empty_translation(mut self) -> Self {
+        self.translation_empty = true;
+        self
+    }
+
+    pub fn trailing(mut self, el: impl IntoElement) -> Self {
+        self.trailing.push(el.into_any_element());
+        self
+    }
+}
+
+impl RenderOnce for RecordRow {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let theme = cx.theme().clone();
+        let muted = theme.muted_foreground;
+        let text = theme.foreground;
+        let chip = theme.muted;
+        div()
+            .id(self.id)
+            .w_full()
+            .min_w_0()
+            .px_3()
+            .py_2()
+            .rounded(px(10.))
+            .hover(|s| s.bg(theme.muted.opacity(0.45)))
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .px(px(6.))
+                            .py(px(1.))
+                            .rounded(px(4.))
+                            .bg(chip)
+                            .text_xs()
+                            .text_color(muted)
+                            .child(self.origin),
+                    )
+                    .child(div().text_xs().text_color(muted).child(self.langs))
+                    .child(div().flex_1())
+                    .child(div().text_xs().text_color(muted).child(self.time))
+                    .children(self.trailing),
+            )
+            .child(crate::shared::text_select::clamped_plain(
+                self.source,
+                text,
+                13.,
+                19.,
+                2,
+            ))
+            .child(crate::shared::text_select::clamped_plain(
+                self.translation,
+                if self.translation_empty {
+                    muted
+                } else {
+                    text.opacity(0.72)
+                },
+                13.,
+                19.,
+                2,
+            ))
+    }
+}
+
+#[derive(IntoElement)]
+pub struct DaySection {
+    label: SharedString,
+}
+
+impl DaySection {
+    pub fn new(label: impl Into<SharedString>) -> Self {
+        Self {
+            label: label.into(),
+        }
+    }
+}
+
+impl RenderOnce for DaySection {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        div()
+            .pt_3()
+            .pb_1()
+            .px_3()
+            .text_xs()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(cx.theme().muted_foreground)
+            .child(self.label)
     }
 }
 

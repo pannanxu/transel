@@ -36,8 +36,8 @@ impl OcrBackendKind {
             "baidu" | "baidu_cloud" | "baidu-ocr" => Self::BaiduCloud,
             "youdao" | "youdao_cloud" | "youdao-ocr" => Self::YoudaoCloud,
             "google" | "google_ocr" | "vision" => Self::Google,
-            "livetext" | "live_text" | "visionkit" | "tesseract" | "winrt" | "win_rt"
-            | "auto" | "" => Self::Auto,
+            "livetext" | "live_text" | "visionkit" | "tesseract" | "winrt" | "win_rt" | "auto"
+            | "" => Self::Auto,
             _ => Self::Auto,
         }
     }

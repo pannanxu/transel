@@ -289,6 +289,8 @@ pub enum BackendKind {
     /// Free Dictionary API（英语单词释义，与其它通道并排）
     Dictionary,
     Niutrans,
+    /// 小牛通用文本 Pro（LLM）。
+    NiutransPro,
     Amazon,
     Claude,
     Gemini,
@@ -311,6 +313,7 @@ impl BackendKind {
             BackendKind::Apple => "apple",
             BackendKind::Dictionary => "dictionary",
             BackendKind::Niutrans => "niutrans",
+            BackendKind::NiutransPro => "niutrans_pro",
             BackendKind::Amazon => "amazon",
             BackendKind::Claude => "claude",
             BackendKind::Gemini => "gemini",
@@ -332,6 +335,7 @@ impl BackendKind {
             BackendKind::Apple,
             BackendKind::Dictionary,
             BackendKind::Niutrans,
+            BackendKind::NiutransPro,
             BackendKind::Amazon,
             BackendKind::Claude,
             BackendKind::Gemini,
@@ -360,7 +364,8 @@ impl BackendKind {
             BackendKind::Aliyun => "阿里翻译",
             BackendKind::Apple => "Apple 翻译",
             BackendKind::Dictionary => "词典",
-            BackendKind::Niutrans => "小牛翻译",
+            BackendKind::Niutrans => "小牛翻译 Flash",
+            BackendKind::NiutransPro => "小牛翻译 Pro",
             BackendKind::Amazon => "Amazon 翻译",
             BackendKind::Claude => "Claude",
             BackendKind::Gemini => "Gemini",
@@ -383,6 +388,7 @@ pub struct BackendEntry {
     /// - Google Cloud：`key_ref` / `project`
     /// - 百度：`app_id` / `key_ref`
     /// - 有道：`app_id` / `key_ref`
+    /// - 火山：`access_key` / `key_ref`(secret) / `region`（默认 cn-north-1）
     /// - 腾讯：`secret_id` / `secret_key_ref` / `region`
     /// - 微软：`key_ref` / `region` / `endpoint`
     #[serde(default)]
@@ -684,7 +690,10 @@ fn backend_is_unused_stub(b: &BackendEntry) -> bool {
         return false;
     }
     b.params.is_empty()
-        || b.params
-            .keys()
-            .all(|k| matches!(k.as_str(), "base" | "model" | "auth" | "api_version" | "preset"))
+        || b.params.keys().all(|k| {
+            matches!(
+                k.as_str(),
+                "base" | "model" | "auth" | "api_version" | "preset"
+            )
+        })
 }

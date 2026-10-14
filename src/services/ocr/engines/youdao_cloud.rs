@@ -48,14 +48,7 @@ impl OcrEngine for YoudaoCloudOcr {
             .map(|d| d.as_secs())
             .unwrap_or(0)
             .to_string();
-        let sign_src = format!(
-            "{}{}{}{}{}",
-            truncate(&b64, 10),
-            salt,
-            curtime,
-            app_id,
-            key
-        );
+        let sign_src = format!("{}{}{}{}{}", truncate(&b64, 10), salt, curtime, app_id, key);
         let mut h = Sha256::new();
         h.update(sign_src.as_bytes());
         let sign = format!("{:x}", h.finalize());
