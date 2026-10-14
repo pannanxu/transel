@@ -44,12 +44,23 @@ pub fn drag_move(drag: &ManualDrag) {
 
 /// 弹窗打开后调用一次：macOS 毛玻璃圆角；Windows 置顶/不进任务栏；Linux 请求 ABOVE。
 pub fn setup_popup_window(window: &Window, activate: bool) {
+    setup_popup_window_ex(window, activate, true);
+}
+
+/// `vibrancy=false` 时不装毛玻璃，窗口不透明（设置面板用）。
+pub fn setup_popup_window_ex(window: &Window, activate: bool, vibrancy: bool) {
     #[cfg(target_os = "macos")]
     {
         let _ = activate;
-        macos_impl::install_vibrancy(window);
+        if vibrancy {
+            macos_impl::install_vibrancy(window);
+        } else {
+            macos_impl::setup_opaque(window);
+        }
         macos_impl::apply_pin(window, false);
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = vibrancy;
     #[cfg(target_os = "windows")]
     windows_impl::setup_popup(window, activate);
     #[cfg(target_os = "linux")]
@@ -59,7 +70,7 @@ pub fn setup_popup_window(window: &Window, activate: bool) {
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
-        let _ = (window, activate);
+        let _ = (window, activate, vibrancy);
     }
 }
 
@@ -157,6 +168,33 @@ mod macos_impl {
             nswindow.setOpaque(false);
             nswindow.setHasShadow(true);
             // titlebar: None 时 GPUI 不会加 Closable，系统菜单 Cmd+W 会吞键却关不掉。
+            nswindow.setStyleMask(nswindow.styleMask() | NSWindowStyleMask::Closable);
+            for btn in [
+                NSWindowButton::CloseButton,
+                NSWindowButton::MiniaturizeButton,
+                NSWindowButton::ZoomButton,
+            ] {
+                if let Some(b) = nswindow.standardWindowButton(btn) {
+                    b.setHidden(true);
+                }
+            }
+            nswindow.invalidateShadow();
+        }
+    }
+
+    pub fn setup_opaque(window: &gpui_kit::Window) {
+        let Some(view) = gpui_view(window) else {
+            return;
+        };
+        let Some(nswindow) = view.window() else {
+            return;
+        };
+        unsafe {
+            if let Some(content) = nswindow.contentView() {
+                round_layer(&content);
+            }
+            nswindow.setOpaque(true);
+            nswindow.setHasShadow(true);
             nswindow.setStyleMask(nswindow.styleMask() | NSWindowStyleMask::Closable);
             for btn in [
                 NSWindowButton::CloseButton,

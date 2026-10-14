@@ -63,6 +63,8 @@ pub fn speak_with_backend(backend: &str, opts: TtsOptions) -> anyhow::Result<()>
     match backend.trim().to_ascii_lowercase().as_str() {
         "microsoft" | "azure" => speak_microsoft(opts),
         "google" | "google_cloud" => speak_google(opts),
+        "volcano" | "volc" | "bytedance" => speak_volcano(opts),
+        "tencent" | "tencent_tts" => speak_tencent(opts),
         _ => speak_system(opts),
     }
 }
@@ -176,6 +178,100 @@ $s.Dispose()
         let _ = opts;
         anyhow::bail!("当前平台不支持 TTS");
     }
+}
+
+fn speak_volcano(opts: TtsOptions) -> anyhow::Result<()> {
+    use crate::app::secrets;
+    let appid = secrets::env_or_keyring(
+        &["VOLCANO_TTS_APP_ID", "VOLC_TTS_APP_ID"],
+        &["volcano_tts_app_id"],
+    )
+    .ok_or_else(|| anyhow::anyhow!("未配置火山语音 AppId (VOLCANO_TTS_APP_ID)"))?;
+    let token = secrets::env_or_keyring(
+        &["VOLCANO_TTS_TOKEN", "VOLC_TTS_TOKEN"],
+        &["volcano_tts_token"],
+    )
+    .ok_or_else(|| anyhow::anyhow!("未配置火山语音 Token (VOLCANO_TTS_TOKEN)"))?;
+    let cluster = secrets::env_or_keyring(&["VOLCANO_TTS_CLUSTER"], &["volcano_tts_cluster"])
+        .unwrap_or_else(|| "volcano_tts".into());
+    let voice = match opts.language.unwrap_or("zh-CN").to_ascii_lowercase().as_str() {
+        "en" | "en-us" | "en-gb" => "BV503_streaming",
+        _ => "BV700_streaming",
+    };
+    let body = serde_json::json!({
+        "app": { "appid": appid, "token": token, "cluster": cluster },
+        "user": { "uid": "transel" },
+        "audio": { "voice_type": voice, "encoding": "mp3", "speed_ratio": 1.0 },
+        "request": {
+            "reqid": uuid::Uuid::new_v4().to_string(),
+            "text": opts.text,
+            "operation": "query"
+        }
+    });
+    let v: serde_json::Value = crate::services::translate::ureq_agent()
+        .post("https://openspeech.bytedance.com/api/v1/tts")
+        .header("Authorization", format!("Bearer;{token}"))
+        .send_json(body)?
+        .body_mut()
+        .read_json()?;
+    if v["code"].as_i64().unwrap_or(-1) != 3000
+        && v["code"].as_i64().unwrap_or(0) != 0
+    {
+        anyhow::bail!("火山语音失败: {v}");
+    }
+    let b64 = v["data"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("火山语音无 data: {v}"))?;
+    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)?;
+    play_audio_bytes(&bytes, "mp3")
+}
+
+fn speak_tencent(opts: TtsOptions) -> anyhow::Result<()> {
+    use crate::app::secrets;
+    use crate::services::cloud;
+    let secret_id = secrets::env_or_keyring(
+        &["TENCENT_SECRET_ID", "TENCENT_TTS_SECRET_ID"],
+        &["tencent_secret_id", "tencent"],
+    )
+    .ok_or_else(|| anyhow::anyhow!("未配置腾讯云 SecretId"))?;
+    let secret_key = secrets::env_or_keyring(
+        &["TENCENT_SECRET_KEY", "TENCENT_TTS_SECRET_KEY"],
+        &["tencent_secret_key", "tencent"],
+    )
+    .ok_or_else(|| anyhow::anyhow!("未配置腾讯云 SecretKey"))?;
+    let region = secrets::env_or_keyring(&["TENCENT_REGION"], &["tencent_region"])
+        .unwrap_or_else(|| "ap-guangzhou".into());
+    let (lang, voice) = match opts.language.unwrap_or("zh-CN").to_ascii_lowercase().as_str() {
+        "en" | "en-us" | "en-gb" => (1, 101001),
+        _ => (1, 101001),
+    };
+    let payload = serde_json::json!({
+        "Text": opts.text,
+        "SessionId": uuid::Uuid::new_v4().to_string(),
+        "VoiceType": voice,
+        "PrimaryLanguage": lang,
+        "Codec": "mp3",
+    })
+    .to_string();
+    let v = cloud::tencent_json(
+        &crate::services::translate::ureq_agent(),
+        &secret_id,
+        &secret_key,
+        &region,
+        "tts.tencentcloudapi.com",
+        "tts",
+        "TextToVoice",
+        "2019-08-23",
+        &payload,
+    )?;
+    if let Some(err) = v["Response"]["Error"]["Message"].as_str() {
+        anyhow::bail!("腾讯语音: {err}");
+    }
+    let b64 = v["Response"]["Audio"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("腾讯语音无 Audio: {v}"))?;
+    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)?;
+    play_audio_bytes(&bytes, "mp3")
 }
 
 fn speak_microsoft(opts: TtsOptions) -> anyhow::Result<()> {
@@ -340,6 +436,22 @@ pub fn probe(backend: &str) -> anyhow::Result<()> {
                 .filter(|s| !s.is_empty())
                 .or_else(|| KeyringStore.get("google_tts_api_key").ok())
                 .ok_or_else(|| anyhow::anyhow!("未配置 Google TTS API Key"))?;
+            Ok(())
+        }
+        "volcano" | "volc" | "bytedance" => {
+            crate::app::secrets::env_or_keyring(
+                &["VOLCANO_TTS_TOKEN", "VOLC_TTS_TOKEN"],
+                &["volcano_tts_token"],
+            )
+            .ok_or_else(|| anyhow::anyhow!("未配置火山语音 Token"))?;
+            Ok(())
+        }
+        "tencent" | "tencent_tts" => {
+            crate::app::secrets::env_or_keyring(
+                &["TENCENT_SECRET_KEY"],
+                &["tencent_secret_key", "tencent"],
+            )
+            .ok_or_else(|| anyhow::anyhow!("未配置腾讯云 SecretKey"))?;
             Ok(())
         }
         _ => Ok(()),

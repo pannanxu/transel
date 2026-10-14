@@ -1,8 +1,10 @@
-//! 有道智云 AI 翻译（文本翻译 API v3）。
+//! 有道智云文本翻译 API。
 //!
-//! 文档：https://ai.youdao.com/DOCSIRMA/html/%E6%96%87%E6%9C%AC%E7%BF%BB%E8%AF%91/API%E6%96%87%E6%9C%AC%E7%BF%BB%E8%AF%91%E6%8E%A5%E5%8F%A3/%E6%96%87%E6%9C%AC%E7%BF%BB%E8%AF%91%E6%8E%A5%E5%8F%A3.md
+//! 文档：https://ai.youdao.com/DOCSIRMA/html/trans/api/wbfy/
 //!
-//! 签名：truncate(q) + salt + curtime + key 拼起来 SHA256。
+//! `POST https://openapi.youdao.com/api`，表单字段。
+//! 签名 v3：`sha256(应用ID + input + salt + curtime + 应用密钥)`。
+//! `input`：`q` 长度 ≤20 为全文；否则 `前10字 + 总长度 + 后10字`。
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -33,49 +35,46 @@ impl Translator for YoudaoTranslator {
         &self,
         text: &str,
         target: &str,
-        _source_hint: Option<&str>,
+        source_hint: Option<&str>,
     ) -> Result<SingleResult> {
-        let (from, to) = youdao_lang_pair("auto", target);
+        let from = youdao_lang(source_hint.unwrap_or("auto"));
+        let to = youdao_lang(target);
         let salt = uuid::Uuid::new_v4().to_string();
         let curtime = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0)
             .to_string();
+        let input = sign_input(text);
         let sign_src = format!(
             "{}{}{}{}{}",
-            truncate(text, 10),
-            salt,
-            curtime,
-            self.app_id,
-            self.key
+            self.app_id, input, salt, curtime, self.key
         );
         let mut h = Sha256::new();
         h.update(sign_src.as_bytes());
         let sign = format!("{:x}", h.finalize());
 
-        let body = serde_json::json!({
-            "q": text,
-            "from": from,
-            "to": to,
-            "appKey": self.app_id,
-            "salt": salt,
-            "sign": sign,
-            "signType": "v3",
-            "curtime": curtime,
-        });
         let v: Value = self
             .agent
             .post("https://openapi.youdao.com/api")
-            .send_json(body)
+            .send_form([
+                ("q", text),
+                ("from", from.as_str()),
+                ("to", to.as_str()),
+                ("appKey", self.app_id.as_str()),
+                ("salt", salt.as_str()),
+                ("sign", sign.as_str()),
+                ("signType", "v3"),
+                ("curtime", curtime.as_str()),
+            ])
             .context("请求有道翻译失败")?
             .body_mut()
             .read_json()
             .context("解析有道响应失败")?;
-        if let Some(err) = v.get("errorCode").and_then(|e| e.as_str())
-            && err != "0"
-        {
-            anyhow::bail!("有道错误 {err}");
+
+        let err = error_code(&v);
+        if err != "0" {
+            anyhow::bail!("有道错误 {err}{}", youdao_error_hint(&err));
         }
         let mut out = String::new();
         if let Some(arr) = v["translation"].as_array() {
@@ -91,10 +90,13 @@ impl Translator for YoudaoTranslator {
         if out.is_empty() {
             anyhow::bail!("有道翻译结果为空");
         }
+        let src = v["l"].as_str().and_then(|l| {
+            l.split('2').next().filter(|s| !s.is_empty() && *s != "auto")
+        });
         Ok(SingleResult {
             backend: self.name().to_string(),
             text: out,
-            source_lang: None,
+            source_lang: src.map(|s| s.to_string()),
             elapsed_ms: 0,
             ok: true,
             error: None,
@@ -103,33 +105,69 @@ impl Translator for YoudaoTranslator {
     }
 }
 
-fn truncate(s: &str, max_chars: usize) -> String {
-    let n = s.chars().count();
-    if n <= max_chars {
-        s.to_string()
+/// 文档：q 长度 ≤20 用全文；否则 前10字符 + 字符数 + 后10字符。
+fn sign_input(q: &str) -> String {
+    let n = q.chars().count();
+    if n <= 20 {
+        q.to_string()
     } else {
-        let prefix: String = s.chars().take(max_chars).collect();
-        let suffix: String = s.chars().skip(n - max_chars).collect();
-        format!("{prefix}{}", suffix.len())
+        let prefix: String = q.chars().take(10).collect();
+        let suffix: String = q.chars().skip(n - 10).collect();
+        format!("{prefix}{n}{suffix}")
     }
 }
 
-fn youdao_lang_pair(from: &str, to: &str) -> (String, String) {
-    let map = |c: &str| -> String {
-        let c = c.to_ascii_lowercase();
-        match c.as_str() {
-            "zh" | "zh-cn" | "zh-hans" => "zh-CHS".into(),
-            "zh-tw" | "zh-hant" => "zh-CHT".into(),
-            "en" | "en-us" | "en-gb" => "en".into(),
-            "ja" => "ja".into(),
-            "ko" => "ko".into(),
-            "fr" => "fr".into(),
-            "de" => "de".into(),
-            "es" => "es".into(),
-            "ru" => "ru".into(),
-            "auto" => "auto".into(),
-            other => other.into(),
-        }
+fn error_code(v: &Value) -> String {
+    v.get("errorCode")
+        .and_then(|e| e.as_str().map(|s| s.to_string()).or_else(|| e.as_u64().map(|n| n.to_string())))
+        .unwrap_or_else(|| "unknown".into())
+}
+
+fn youdao_error_hint(code: &str) -> String {
+    let hint = match code {
+        "101" => "缺少必填参数",
+        "102" => "不支持的语言类型",
+        "108" => "应用 ID 无效",
+        "110" => "应用未绑定文本翻译服务",
+        "113" => "待译文本为空",
+        "202" => "签名校验失败，请核对应用 ID / 密钥，并确保文本为 UTF-8",
+        "206" => "时间戳无效",
+        "207" => "重复请求",
+        "401" => "账户欠费",
+        "411" => "访问频率受限",
+        _ => return String::new(),
     };
-    (map(from), map(to))
+    format!("（{hint}）")
+}
+
+fn youdao_lang(code: &str) -> String {
+    match code.to_ascii_lowercase().as_str() {
+        "zh" | "zh-cn" | "zh-hans" => "zh-CHS".into(),
+        "zh-tw" | "zh-hant" => "zh-CHT".into(),
+        "en" | "en-us" | "en-gb" => "en".into(),
+        "ja" => "ja".into(),
+        "ko" => "ko".into(),
+        "fr" => "fr".into(),
+        "de" => "de".into(),
+        "es" => "es".into(),
+        "ru" => "ru".into(),
+        "auto" => "auto".into(),
+        other => other.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sign_input;
+
+    #[test]
+    fn sign_input_short() {
+        assert_eq!(sign_input("hello"), "hello");
+    }
+
+    #[test]
+    fn sign_input_long() {
+        let q = "abcdefghijklmnopqrstuvwxyz"; // 26
+        assert_eq!(sign_input(q), "abcdefghij26qrstuvwxyz");
+    }
 }

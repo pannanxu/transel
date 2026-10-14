@@ -18,7 +18,7 @@ Transel 面向阅读与写作时的即时翻译：在浏览器、编辑器或其
 - 静默替换：将译文写回选区或当前输入框
 - 密钥保存在系统钥匙串，配置文件不保存明文
 
-默认目标语言为简体中文，可在设置中修改。未配置付费接口时，仍可使用 Google 免费翻译与英语词典。
+默认目标语言为简体中文，可在设置中修改。新安装默认仅启用系统翻译（macOS 为 Apple 翻译，其它平台为 Google 免费）；其它接口在设置中点「添加」后再配置。
 
 ## 功能
 
@@ -26,12 +26,12 @@ Transel 面向阅读与写作时的即时翻译：在浏览器、编辑器或其
 |---|---|
 | 划词翻译 | 默认 `Alt+D`（macOS 为 Option+D），浮窗显示原文与译文 |
 | 输入翻译 | 弹出输入框，回车翻译 |
-| 截图 OCR | RapidOCR（PP-OCRv5）；可翻译、仅识别，或静默写入剪贴板。首次使用需联网下载模型 |
+| 截图 OCR | RapidOCR，以及火山 / 腾讯 / 百度 / 有道 / Google 云识别；腾讯图片翻译 |
 | 原图翻译 | 在截图上标出识别区域并翻译 |
 | 静默替换 | 译文写回选区或输入框全文；指针旁可停止当前任务 |
-| 翻译接口 | OpenAI 兼容（DeepSeek、通义、Ollama 等）、DeepL、Google Cloud、百度、有道、腾讯、微软、彩云、火山、阿里、Apple 翻译（macOS）、Google 免费 |
+| 翻译接口 | 机器翻译（Apple 系统翻译、DeepL、Google、微软、Amazon、百度、有道、阿里、火山、彩云、小牛等）与 LLM 通道（OpenAI / Azure / Claude / Gemini / 智谱 / DeepSeek / 通义 / 豆包 / Kimi / Ollama 等） |
 | 词典 | 英语单词：音标、词性、例句 |
-| 朗读 | macOS `say`、Windows 系统语音、Linux `spd-say` / `espeak-ng` |
+| 朗读 | 系统 TTS，以及火山 / 腾讯 / Google / Microsoft 云语音 |
 | 历史 / 收藏 | 应用内搜索 |
 | 托盘 | 设置、历史、输入翻译、截图 OCR、固定浮窗、退出 |
 
@@ -104,7 +104,7 @@ chmod +x Transel-<version>-x86_64.AppImage
 
 ### 配置翻译接口
 
-启动后通过托盘打开「设置」，启用所需接口并填写 API Key。密钥写入系统钥匙串（macOS Keychain、Windows 凭据管理器、Linux Secret Service）。
+启动后通过托盘打开「设置」，启用所需接口并填写 API Key。OpenAI 兼容通道（智谱、硅基流动、Groq、Ollama 等）已预置地址与默认模型。密钥写入系统钥匙串（macOS Keychain、Windows 凭据管理器、Linux Secret Service）。云 OCR / TTS 也可使用环境变量，例如 `TENCENT_SECRET_ID`、`VOLCANO_ACCESS_KEY`、`GOOGLE_OCR_API_KEY`、`VOLCANO_TTS_TOKEN`。
 
 配置文件位置：
 

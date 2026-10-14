@@ -11,9 +11,8 @@ use std::sync::Arc;
 use gpui_kit::*;
 
 use crate::app::state::AppState;
-use crate::shared::chrome::window_background;
 use crate::shared::tokens::{SETTINGS_SIZE, UTILITY_ORIGIN_X, UTILITY_ORIGIN_Y};
-use crate::shell::window::{PopupWindowOpts, open_root_window};
+use crate::shell::window::open_document_window;
 
 pub fn open(cx: &mut App) {
     let old = cx.global_mut::<AppState>().settings_window.lock().take();
@@ -37,18 +36,11 @@ pub fn open(cx: &mut App) {
         }),
         ..SettingsActions::default()
     };
-    let opts = PopupWindowOpts {
-        bounds: Bounds::new(
-            point(px(UTILITY_ORIGIN_X), px(UTILITY_ORIGIN_Y)),
-            size(px(SETTINGS_SIZE.0), px(SETTINGS_SIZE.1)),
-        ),
-        display_id: None,
-        focus: true,
-        movable: true,
-        resizable: true,
-        background: window_background(),
-    };
-    match open_root_window(cx, opts, move |window, cx| {
+    let bounds = Bounds::new(
+        point(px(UTILITY_ORIGIN_X), px(UTILITY_ORIGIN_Y)),
+        size(px(SETTINGS_SIZE.0), px(SETTINGS_SIZE.1)),
+    );
+    match open_document_window(cx, "设置", bounds, move |window, cx| {
         cx.new(|cx| SettingsView::new(cfg, actions, window, cx))
     }) {
         Ok(handle) => {

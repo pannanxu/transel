@@ -1,7 +1,7 @@
 //! 屏幕 OCR：截取屏幕区域 → 可插拔引擎识别。
 //!
 //! - [`platform`]：各平台截图
-//! - [`engine`] / [`engines`] / [`registry`]：本地 RapidOCR；云端口子预留
+//! - [`engine`] / [`engines`] / [`registry`]：RapidOCR + 云端 OCR
 //! - [`postprocess`]：智能分段；[`qr`]：二维码；[`finder`]：文件管理器选图
 
 use std::path::{Path, PathBuf};
@@ -15,6 +15,7 @@ pub mod boxes;
 pub mod engine;
 pub mod engines;
 pub mod finder;
+pub mod image;
 pub mod ort_runtime;
 pub mod platform;
 pub mod postprocess;

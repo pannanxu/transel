@@ -11,7 +11,6 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::Icon;
-use gpui_kit::component::Sizable;
 use gpui_kit::component::animation::ease_out_cubic;
 use gpui_kit::component::collapsible::Collapsible;
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
@@ -54,9 +53,10 @@ pub const SHADOW_MARGIN: f32 = 12.;
 const PAD: f32 = 14.;
 const HEADER_H: f32 = 24.;
 const GAP: f32 = 10.;
-const SOURCE_SIZE: f32 = 12.;
+const SOURCE_SIZE: f32 = 13.;
 const SOURCE_LINE: f32 = 20.;
-const SOURCE_MAX_ROWS: usize = 8;
+const SOURCE_MIN_ROWS: usize = 3;
+const SOURCE_MAX_ROWS: usize = 10;
 const BODY_SIZE: f32 = 15.;
 const BODY_LINE: f32 = 22.;
 
@@ -110,7 +110,8 @@ pub struct TranslatePopup {
     pub target_lang: String,
     pub source_lang: String,
     pub pinned: bool,
-    pub copied: bool,
+    /// 刚复制过的通道名（用于该通道复制按钮的短暂勾选态）
+    pub copied_channel: Option<String>,
     pub active_tab: usize,
     pub prepared_for_history: Option<String>,
     pub was_split: bool,
@@ -154,7 +155,7 @@ impl TranslatePopup {
         };
         let source_input = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(1, SOURCE_MAX_ROWS)
+                .auto_grow(SOURCE_MIN_ROWS, SOURCE_MAX_ROWS)
                 .submit_on_enter(true)
                 .placeholder("输入要翻译的文字，回车翻译（Shift+回车换行）")
                 .default_value(initial)
@@ -181,23 +182,9 @@ impl TranslatePopup {
                         this.submit_source(cx);
                     }
                 }
-                InputEvent::Focus => {
+                InputEvent::Focus | InputEvent::Blur => {
                     this.source_input.update(cx, |input, cx| {
-                        input.set_auto_grow(1, SOURCE_MAX_ROWS, cx);
-                    });
-                    this.schedule_resize_from_content(cx);
-                    cx.notify();
-                }
-                InputEvent::Blur => {
-                    // 失焦后若仍是单行文本，收回到一行；多行/超长内容保持展开以便阅读。
-                    let text = this.source_input.read(cx).value().to_string();
-                    let keep_multi = text.contains('\n') || source_needs_wrap(&text);
-                    this.source_input.update(cx, |input, cx| {
-                        if keep_multi {
-                            input.set_auto_grow(1, SOURCE_MAX_ROWS, cx);
-                        } else {
-                            input.set_auto_grow(1, 1, cx);
-                        }
+                        input.set_auto_grow(SOURCE_MIN_ROWS, SOURCE_MAX_ROWS, cx);
                     });
                     this.schedule_resize_from_content(cx);
                     cx.notify();
@@ -230,7 +217,7 @@ impl TranslatePopup {
             target_lang,
             source_lang,
             pinned,
-            copied: false,
+            copied_channel: None,
             active_tab: 0,
             prepared_for_history: None,
             was_split: false,
@@ -624,7 +611,7 @@ impl TranslatePopup {
         cx: &mut Context<Self>,
     ) {
         self.origin = origin;
-        self.copied = false;
+        self.copied_channel = None;
         self.channel_open.clear();
         self.active_tab = 0;
         if let Some(ctx_inner) = ctx {
@@ -646,25 +633,48 @@ impl TranslatePopup {
 }
 
 fn icon_button(
-    id: &'static str,
+    id: impl Into<ElementId>,
     icon: &'static str,
     color: Hsla,
     hover: Hsla,
     tip: impl Into<SharedString>,
 ) -> Stateful<Div> {
+    icon_button_sized(id, icon, color, hover, tip, 22., 14., 6.)
+}
+
+fn compact_icon_button(
+    id: impl Into<ElementId>,
+    icon: &'static str,
+    color: Hsla,
+    hover: Hsla,
+    tip: impl Into<SharedString>,
+) -> Stateful<Div> {
+    icon_button_sized(id, icon, color, hover, tip, 16., 10., 4.)
+}
+
+fn icon_button_sized(
+    id: impl Into<ElementId>,
+    icon: &'static str,
+    color: Hsla,
+    hover: Hsla,
+    tip: impl Into<SharedString>,
+    size: f32,
+    icon_size: f32,
+    radius: f32,
+) -> Stateful<Div> {
     let tip = tip.into();
     div()
         .id(id)
-        .size(px(22.))
+        .size(px(size))
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(6.))
+        .rounded(px(radius))
         .cursor_pointer()
         .hover(move |s| s.bg(hover))
         .active(move |s| s.opacity(0.7))
         .tooltip(tooltip::build(tip))
-        .child(svg().path(icon).size(px(14.)).text_color(color))
+        .child(svg().path(icon).size(px(icon_size)).text_color(color))
 }
 
 fn text_width(s: &str, font: f32) -> f32 {
@@ -690,14 +700,11 @@ fn line_count(s: &str, font: f32, width: f32) -> f32 {
 }
 
 fn source_input_height(source: &str) -> f32 {
-    let rows = source.lines().count().clamp(1, SOURCE_MAX_ROWS) as f32;
-    // 粗估：每行 SOURCE_LINE，外加内边距。
-    rows * SOURCE_LINE + 8.
-}
-
-/// 文本是否可能因宽度而换行（用于失焦时决定是否保持多行高度）。
-fn source_needs_wrap(s: &str) -> bool {
-    text_width(s.lines().next().unwrap_or(""), SOURCE_SIZE) > (MIN_W - PAD * 2. - 40.)
+    let rows = source
+        .lines()
+        .count()
+        .clamp(SOURCE_MIN_ROWS, SOURCE_MAX_ROWS) as f32;
+    rows * SOURCE_LINE + 16.
 }
 
 fn lerp_size(from: Size<Pixels>, to: Size<Pixels>, t: f32) -> Size<Pixels> {
@@ -803,8 +810,8 @@ fn estimate_layout(source: &str, body: &str, tabs: usize, limits: ScreenLimits) 
 }
 
 /// 通道卡片内边距 / 标题栏 / 卡片间距（与 render_batch 保持一致）。
-const CHANNEL_CARD_PAD: f32 = 8.;
-const CHANNEL_HEADER_H: f32 = 22.;
+const CHANNEL_CARD_PAD: f32 = 6.;
+const CHANNEL_HEADER_H: f32 = 20.;
 const CHANNEL_CARD_GAP: f32 = 8.;
 /// Collapsible gap + 分隔线 + content gap（展开时）。
 const CHANNEL_OPEN_CHROME: f32 = 6. + 1. + 6.;
@@ -896,27 +903,11 @@ impl Render for TranslatePopup {
 
         let p = palette(window.appearance());
 
-        let (show_pin, copy_text, speak_text) = match &self.mode {
-            Mode::Batch(b) => {
-                let text = b.first_ok().map(|r| r.text.clone());
-                (true, text.clone(), text)
-            }
-            _ => (true, None, None),
-        };
-        let show_copy = copy_text.is_some();
-        let show_speak = speak_text.is_some();
-
         let pin_svg = if self.pinned {
             icons::PIN_OFF
         } else {
             icons::PIN
         };
-        let copy_svg = if self.copied {
-            icons::CHECK
-        } else {
-            icons::COPY
-        };
-        let copy_color = if self.copied { p.accent } else { p.muted };
 
         // 仅标题栏拖动窗口，正文区留给文本选择
         let header = div()
@@ -965,79 +956,32 @@ impl Render for TranslatePopup {
                     .child(self.lang_dir.clone()),
             )
             .child(div().flex_1())
-            .when(show_speak, |el| {
-                let t = speak_text.clone().unwrap_or_default();
-                el.child(
-                    icon_button("btn_speak", icons::SPEAKER, p.muted, p.hover, "朗读")
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                (this.actions.on_speak)(t.clone());
-                            }),
-                        ),
+            .child(
+                icon_button(
+                    "btn_pin",
+                    pin_svg,
+                    p.muted,
+                    p.hover,
+                    if self.pinned {
+                        "取消固定"
+                    } else {
+                        "固定窗口"
+                    },
                 )
-            })
-            .when(show_pin, |el| {
-                el.child(
-                    icon_button(
-                        "btn_pin",
-                        pin_svg,
-                        p.muted,
-                        p.hover,
-                        if self.pinned {
-                            "取消固定"
-                        } else {
-                            "固定窗口"
-                        },
-                    )
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.pinned = !this.pinned;
-                            cx.global::<AppState>()
-                                .pinned
-                                .store(this.pinned, Ordering::Relaxed);
-                            crate::platform::apply_popup_pin(window, this.pinned);
-                            (this.actions.on_pin)(this.pinned);
-                            cx.notify();
-                        }),
-                    ),
-                )
-            })
-            .when(show_copy, |el| {
-                let t = copy_text.clone().unwrap_or_default();
-                el.child(
-                    icon_button(
-                        "btn_copy",
-                        copy_svg,
-                        copy_color,
-                        p.hover,
-                        if self.copied { "已复制" } else { "复制" },
-                    )
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            cx.write_to_clipboard(ClipboardItem::new_string(t.clone()));
-                            (this.actions.on_copy)(t.clone());
-                            this.copied = true;
-                            cx.notify();
-                            cx.spawn(async move |this, cx| {
-                                cx.background_executor()
-                                    .timer(Duration::from_millis(1200))
-                                    .await;
-                                let _ = this.update(cx, |this, cx| {
-                                    this.copied = false;
-                                    cx.notify();
-                                });
-                            })
-                            .detach();
-                        }),
-                    ),
-                )
-            })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.pinned = !this.pinned;
+                        cx.global::<AppState>()
+                            .pinned
+                            .store(this.pinned, Ordering::Relaxed);
+                        crate::platform::apply_popup_pin(window, this.pinned);
+                        (this.actions.on_pin)(this.pinned);
+                        cx.notify();
+                    }),
+                ),
+            )
             .child(
                 icon_button("btn_close", icons::CLOSE, p.muted, p.hover, "关闭").on_mouse_down(
                     MouseButton::Left,
@@ -1069,10 +1013,10 @@ impl Render for TranslatePopup {
         let source_line = div()
             .id("source_input_wrap")
             .w_full()
-            .min_h(px(28.))
-            .px(px(8.))
-            .py(px(4.))
-            .rounded(px(6.))
+            .min_h(px(SOURCE_MIN_ROWS as f32 * SOURCE_LINE + 16.))
+            .px(px(10.))
+            .py(px(8.))
+            .rounded(px(8.))
             .bg(p.pill_bg)
             .cursor_text()
             .on_mouse_down(
@@ -1088,10 +1032,10 @@ impl Render for TranslatePopup {
                 Textarea::new(&self.source_input)
                     .appearance(false)
                     .bordered(false)
-                    .small()
                     .w_full()
                     .text_size(px(SOURCE_SIZE))
-                    .text_color(p.muted),
+                    .line_height(px(SOURCE_LINE))
+                    .text_color(p.text),
             );
 
         let card = div()
@@ -1334,7 +1278,7 @@ impl TranslatePopup {
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap(px(6.))
+                .gap(px(4.))
                 .cursor_pointer()
                 .on_mouse_down(
                     MouseButton::Left,
@@ -1343,13 +1287,13 @@ impl TranslatePopup {
                         this.toggle_channel(&backend, cx);
                     }),
                 )
-                .child(Icon::default().path(icon).size(px(13.)).text_color(p.muted))
+                .child(Icon::default().path(icon).size(px(11.)).text_color(p.muted))
                 .child(
                     div()
                         .flex_1()
                         .min_w(px(0.))
                         .overflow_x_hidden()
-                        .text_size(px(12.))
+                        .text_size(px(11.))
                         .line_height(px(CHANNEL_HEADER_H))
                         .font_weight(FontWeight::MEDIUM)
                         .font_family(".SystemUIFont")
@@ -1359,7 +1303,7 @@ impl TranslatePopup {
                                 el.child(
                                     ShimmerText::new(r.backend.clone())
                                         .id(SharedString::from(format!("channel_name_{i}")))
-                                        .text_size(px(12.))
+                                        .text_size(px(11.))
                                         .line_height(px(CHANNEL_HEADER_H))
                                         .font_weight(FontWeight::MEDIUM)
                                         .font_family(".SystemUIFont")
@@ -1372,16 +1316,105 @@ impl TranslatePopup {
                         }),
                 )
                 .child(
-                    // 右侧箭头：收起朝右，展开旋转 90° 朝下
-                    Icon::default()
-                        .path(icons::CHEVRON_RIGHT)
-                        .size(px(12.))
-                        .text_color(p.muted)
-                        .rotate(radians(if open {
-                            std::f32::consts::FRAC_PI_2
-                        } else {
-                            0.
-                        })),
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(1.))
+                        .flex_shrink_0()
+                        .child({
+                            let copied =
+                                self.copied_channel.as_deref() == Some(r.backend.as_str());
+                            let text = r.text.clone();
+                            let backend = r.backend.clone();
+                            let enabled = r.ok && !text.is_empty();
+                            let copy_color = if copied {
+                                p.accent
+                            } else if enabled {
+                                p.muted
+                            } else {
+                                p.muted.opacity(0.4)
+                            };
+                            compact_icon_button(
+                                SharedString::from(format!("ch_copy_{i}")),
+                                if copied { icons::CHECK } else { icons::COPY },
+                                copy_color,
+                                p.hover,
+                                if copied { "已复制" } else { "复制" },
+                            )
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    if text.trim().is_empty() {
+                                        return;
+                                    }
+                                    cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                                    (this.actions.on_copy)(text.clone());
+                                    this.copied_channel = Some(backend.clone());
+                                    cx.notify();
+                                    let backend = backend.clone();
+                                    cx.spawn(async move |this, cx| {
+                                        cx.background_executor()
+                                            .timer(Duration::from_millis(1200))
+                                            .await;
+                                        let _ = this.update(cx, |this, cx| {
+                                            if this.copied_channel.as_deref()
+                                                == Some(backend.as_str())
+                                            {
+                                                this.copied_channel = None;
+                                                cx.notify();
+                                            }
+                                        });
+                                    })
+                                    .detach();
+                                }),
+                            )
+                        })
+                        .child({
+                            let text = r.text.clone();
+                            let speak_color = if r.ok && !text.is_empty() {
+                                p.muted
+                            } else {
+                                p.muted.opacity(0.4)
+                            };
+                            compact_icon_button(
+                                SharedString::from(format!("ch_speak_{i}")),
+                                icons::SPEAKER,
+                                speak_color,
+                                p.hover,
+                                "朗读",
+                            )
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    if text.trim().is_empty() {
+                                        return;
+                                    }
+                                    (this.actions.on_speak)(text.clone());
+                                }),
+                            )
+                        })
+                        .child(
+                            // 右侧箭头：收起朝右，展开旋转 90° 朝下
+                            div()
+                                .size(px(16.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    Icon::default()
+                                        .path(icons::CHEVRON_RIGHT)
+                                        .size(px(10.))
+                                        .text_color(p.muted)
+                                        .rotate(radians(if open {
+                                            std::f32::consts::FRAC_PI_2
+                                        } else {
+                                            0.
+                                        })),
+                                ),
+                        ),
                 );
 
             cards.push(

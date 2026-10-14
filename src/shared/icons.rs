@@ -65,13 +65,31 @@ pub fn channel_icon(backend_name: &str) -> &'static str {
         || n.contains("claude")
         || n.contains("ollama")
         || n.contains("llm")
+        || n.contains("glm")
+        || n.contains("智谱")
+        || n.contains("groq")
+        || n.contains("grok")
+        || n.contains("gemini")
+        || n.contains("kimi")
+        || n.contains("千问")
+        || n.contains("文心")
+        || n.contains("豆包")
+        || n.contains("混元")
+        || n.contains("方舟")
+        || n.contains("silicon")
+        || n.contains("硅基")
     {
         BOT
     } else if n.contains("google") {
         GLOBE
     } else if n.contains("词典") || n.contains("dictionary") || n.contains("dict") {
         BOOK
-    } else if n.contains("deepl") || n.contains("彩云") || n.contains("有道") {
+    } else if n.contains("deepl")
+        || n.contains("彩云")
+        || n.contains("有道")
+        || n.contains("小牛")
+        || n.contains("amazon")
+    {
         LANGUAGES
     } else if n.contains("apple") {
         SPARKLES

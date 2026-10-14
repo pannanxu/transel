@@ -10,16 +10,19 @@ use crate::app::secrets;
 use crate::services::translate::{Translator, ureq_agent};
 
 use super::aliyun::AliyunTranslator;
+use super::amazon::AmazonTranslator;
 use super::apple::AppleTranslator;
 use super::baidu::BaiduTranslator;
 use super::caiyun::CaiyunTranslator;
+use super::claude::ClaudeTranslator;
 use super::deepl::DeepLTranslator;
 use super::dictionary::DictionaryTranslator;
+use super::gemini::GeminiTranslator;
 use super::google::GoogleTranslator;
 use super::google_free::GoogleFreeTranslator;
 use super::microsoft::MicrosoftTranslator;
+use super::niutrans::NiutransTranslator;
 use super::openai_compat::OpenAiCompatTranslator;
-use super::tencent::TencentTranslator;
 use super::volcano::VolcanoTranslator;
 use super::youdao::YoudaoTranslator;
 
@@ -44,7 +47,6 @@ impl BackendRegistry {
         r.register(BackendKind::Google, google_builder);
         r.register(BackendKind::Baidu, baidu_builder);
         r.register(BackendKind::Youdao, youdao_builder);
-        r.register(BackendKind::Tencent, tencent_builder);
         r.register(BackendKind::Microsoft, microsoft_builder);
         r.register(BackendKind::GoogleFree, google_free_builder);
         r.register(BackendKind::Caiyun, caiyun_builder);
@@ -52,6 +54,10 @@ impl BackendRegistry {
         r.register(BackendKind::Aliyun, aliyun_builder);
         r.register(BackendKind::Apple, apple_builder);
         r.register(BackendKind::Dictionary, dictionary_builder);
+        r.register(BackendKind::Niutrans, niutrans_builder);
+        r.register(BackendKind::Amazon, amazon_builder);
+        r.register(BackendKind::Claude, claude_builder);
+        r.register(BackendKind::Gemini, gemini_builder);
         r
     }
 
@@ -107,25 +113,28 @@ fn openai_compat_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
         .timeout_global(Some(std::time::Duration::from_secs(90)))
         .build()
         .into();
-    Some(Arc::new(OpenAiCompatTranslator::new(
+    let auth = e
+        .params
+        .get("auth")
+        .cloned()
+        .unwrap_or_else(|| "bearer".into());
+    let api_version = e.params.get("api_version").cloned().filter(|s| !s.is_empty());
+    Some(Arc::new(OpenAiCompatTranslator::with_auth(
         display_name,
         base,
         key,
         model,
         temperature,
         system_prompt,
+        auth,
+        api_version,
         agent,
     )))
 }
 
 fn deepl_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
     let key = secrets::lookup_key(&e.params, "deepl")?;
-    let endpoint = e
-        .params
-        .get("endpoint")
-        .cloned()
-        .unwrap_or_else(|| "pro".into());
-    Some(Arc::new(DeepLTranslator::new(key, endpoint, ureq_agent())))
+    Some(Arc::new(DeepLTranslator::new(key, ureq_agent())))
 }
 
 fn google_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
@@ -144,22 +153,6 @@ fn youdao_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
     let app_id = e.params.get("app_id")?.clone();
     let key = secrets::lookup_key(&e.params, "youdao")?;
     Some(Arc::new(YoudaoTranslator::new(app_id, key, ureq_agent())))
-}
-
-fn tencent_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
-    let secret_id = e.params.get("secret_id")?.clone();
-    let key = secrets::lookup_key(&e.params, "tencent")?;
-    let region = e
-        .params
-        .get("region")
-        .cloned()
-        .unwrap_or_else(|| "ap-guangzhou".into());
-    Some(Arc::new(TencentTranslator::new(
-        secret_id,
-        key,
-        region,
-        ureq_agent(),
-    )))
 }
 
 fn microsoft_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
@@ -227,4 +220,49 @@ fn apple_builder(_e: &BackendEntry) -> Option<Arc<dyn Translator>> {
 
 fn dictionary_builder(_e: &BackendEntry) -> Option<Arc<dyn Translator>> {
     Some(Arc::new(DictionaryTranslator::new()))
+}
+
+fn niutrans_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
+    let key = secrets::lookup_key(&e.params, "niutrans")?;
+    Some(Arc::new(NiutransTranslator::new(key, ureq_agent())))
+}
+
+fn amazon_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
+    let access_key = e
+        .params
+        .get("access_key")
+        .cloned()
+        .or_else(|| e.params.get("access_key_id").cloned())?;
+    let secret = secrets::lookup_key(&e.params, "amazon")?;
+    let region = e
+        .params
+        .get("region")
+        .cloned()
+        .unwrap_or_else(|| "us-east-1".into());
+    Some(Arc::new(AmazonTranslator::new(
+        access_key,
+        secret,
+        region,
+        ureq_agent(),
+    )))
+}
+
+fn claude_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
+    let key = secrets::lookup_key(&e.params, "claude")?;
+    let model = e
+        .params
+        .get("model")
+        .cloned()
+        .unwrap_or_else(|| "claude-3-5-haiku-latest".into());
+    Some(Arc::new(ClaudeTranslator::new(key, model, ureq_agent())))
+}
+
+fn gemini_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
+    let key = secrets::lookup_key(&e.params, "gemini")?;
+    let model = e
+        .params
+        .get("model")
+        .cloned()
+        .unwrap_or_else(|| "gemini-2.0-flash".into());
+    Some(Arc::new(GeminiTranslator::new(key, model, ureq_agent())))
 }

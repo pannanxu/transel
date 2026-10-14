@@ -17,6 +17,9 @@ pub struct OpenAiCompatTranslator {
     model: String,
     temperature: f64,
     system_prompt: Option<String>,
+    /// `bearer` 或 `api-key`（Azure）。
+    auth: String,
+    api_version: Option<String>,
     agent: ureq::Agent,
 }
 
@@ -30,6 +33,31 @@ impl OpenAiCompatTranslator {
         system_prompt: Option<String>,
         agent: ureq::Agent,
     ) -> Self {
+        Self::with_auth(
+            display_name,
+            base,
+            key,
+            model,
+            temperature,
+            system_prompt,
+            "bearer",
+            None,
+            agent,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_auth(
+        display_name: String,
+        base: String,
+        key: Option<String>,
+        model: String,
+        temperature: f64,
+        system_prompt: Option<String>,
+        auth: impl Into<String>,
+        api_version: Option<String>,
+        agent: ureq::Agent,
+    ) -> Self {
         Self {
             display_name,
             base: base.trim_end_matches('/').to_string(),
@@ -37,6 +65,8 @@ impl OpenAiCompatTranslator {
             model,
             temperature,
             system_prompt,
+            auth: auth.into(),
+            api_version,
             agent,
         }
     }
@@ -90,10 +120,17 @@ impl Translator for OpenAiCompatTranslator {
                 {"role": "user", "content": text}
             ]
         });
-        let url = format!("{}/chat/completions", self.base);
+        let mut url = format!("{}/chat/completions", self.base);
+        if let Some(ver) = &self.api_version {
+            url.push_str(&format!("?api-version={ver}"));
+        }
         let mut req = self.agent.post(url);
         if let Some(key) = &self.key {
-            req = req.header("Authorization", format!("Bearer {key}"));
+            if self.auth.eq_ignore_ascii_case("api-key") {
+                req = req.header("api-key", key);
+            } else {
+                req = req.header("Authorization", format!("Bearer {key}"));
+            }
         }
         let resp = req.send_json(body).context("请求 OpenAI 兼容接口失败")?;
 

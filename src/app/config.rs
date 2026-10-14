@@ -8,9 +8,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::openai_presets::OPENAI_PRESETS;
 use super::secrets;
 
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 7;
 
 /// 顶层配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,7 +87,7 @@ pub struct Config {
     /// 启用的翻译后端（顺序即优先级，重复启用会全部并排展示）
     #[serde(default = "default_backends")]
     pub backends: Vec<BackendEntry>,
-    /// OCR 后端：`auto` / `rapidocr`；云端占位 `baidu_cloud` / `youdao_cloud`
+    /// OCR 后端：`auto` / `rapidocr` / `volcano_ocr` / `tencent_ocr` / `baidu_cloud` 等
     #[serde(default = "default_ocr_backend")]
     pub ocr_backend: String,
     /// TTS 后端：`auto` / `say` / `powershell` / `spd-say` 等
@@ -119,35 +120,7 @@ fn default_source_lang() -> String {
     "auto".into()
 }
 fn default_backends() -> Vec<BackendEntry> {
-    // 默认仅启用 OpenAI 兼容（如果配置了环境变量） + Google 免费。
-    // 没配环境变量时只启用 Google 免费；用户进设置面板再启用别的。
-    let mut out = Vec::new();
-    if let Some(base) = std::env::var("TRANSLATE_API_BASE")
-        .ok()
-        .filter(|s| !s.is_empty())
-    {
-        out.push(BackendEntry::openai_compat(
-            "OpenAI 兼容",
-            &base,
-            backend_params_openai(&base),
-            true,
-        ));
-    }
-    out.push(BackendEntry {
-        id: new_backend_id(),
-        kind: BackendKind::Dictionary,
-        enabled: true,
-        display_name: "词典".into(),
-        params: BTreeMap::new(),
-    });
-    out.push(BackendEntry {
-        id: new_backend_id(),
-        kind: BackendKind::GoogleFree,
-        enabled: true,
-        display_name: "Google 免费".into(),
-        params: BTreeMap::new(),
-    });
-    out
+    vec![BackendEntry::system_default()]
 }
 
 fn new_backend_id() -> String {
@@ -315,6 +288,10 @@ pub enum BackendKind {
     Apple,
     /// Free Dictionary API（英语单词释义，与其它通道并排）
     Dictionary,
+    Niutrans,
+    Amazon,
+    Claude,
+    Gemini,
 }
 
 impl BackendKind {
@@ -333,6 +310,10 @@ impl BackendKind {
             BackendKind::Aliyun => "aliyun",
             BackendKind::Apple => "apple",
             BackendKind::Dictionary => "dictionary",
+            BackendKind::Niutrans => "niutrans",
+            BackendKind::Amazon => "amazon",
+            BackendKind::Claude => "claude",
+            BackendKind::Gemini => "gemini",
         }
     }
 
@@ -343,7 +324,6 @@ impl BackendKind {
             BackendKind::Google,
             BackendKind::Baidu,
             BackendKind::Youdao,
-            BackendKind::Tencent,
             BackendKind::Microsoft,
             BackendKind::GoogleFree,
             BackendKind::Caiyun,
@@ -351,6 +331,10 @@ impl BackendKind {
             BackendKind::Aliyun,
             BackendKind::Apple,
             BackendKind::Dictionary,
+            BackendKind::Niutrans,
+            BackendKind::Amazon,
+            BackendKind::Claude,
+            BackendKind::Gemini,
         ]
     }
 
@@ -364,18 +348,22 @@ impl BackendKind {
     pub fn default_display_name(self) -> &'static str {
         match self {
             BackendKind::OpenAiCompat => "OpenAI 兼容",
-            BackendKind::DeepL => "DeepL",
+            BackendKind::DeepL => "DeepL 翻译",
             BackendKind::Google => "Google 翻译",
             BackendKind::Baidu => "百度翻译",
             BackendKind::Youdao => "有道翻译",
-            BackendKind::Tencent => "腾讯翻译",
-            BackendKind::Microsoft => "微软翻译",
+            BackendKind::Tencent => "腾讯翻译君",
+            BackendKind::Microsoft => "Microsoft 翻译",
             BackendKind::GoogleFree => "Google 免费",
             BackendKind::Caiyun => "彩云小译",
             BackendKind::Volcano => "火山翻译",
             BackendKind::Aliyun => "阿里翻译",
             BackendKind::Apple => "Apple 翻译",
             BackendKind::Dictionary => "词典",
+            BackendKind::Niutrans => "小牛翻译",
+            BackendKind::Amazon => "Amazon 翻译",
+            BackendKind::Claude => "Claude",
+            BackendKind::Gemini => "Gemini",
         }
     }
 }
@@ -391,7 +379,7 @@ pub struct BackendEntry {
     pub display_name: String,
     /// 自由参数：
     /// - OpenAI 兼容：`base` / `model` / `key_ref`（指向钥匙串）/ `temperature` / `prompt`
-    /// - DeepL：`key_ref` / `endpoint`(free|pro)
+    /// - DeepL：`key_ref`（`:fx` 自动走免费地址）
     /// - Google Cloud：`key_ref` / `project`
     /// - 百度：`app_id` / `key_ref`
     /// - 有道：`app_id` / `key_ref`
@@ -402,6 +390,34 @@ pub struct BackendEntry {
 }
 
 impl BackendEntry {
+    /// 新安装默认：macOS 用 Apple 翻译，其它平台用 Google 免费。
+    pub fn system_default() -> Self {
+        #[cfg(target_os = "macos")]
+        let kind = BackendKind::Apple;
+        #[cfg(not(target_os = "macos"))]
+        let kind = BackendKind::GoogleFree;
+        Self::from_kind(kind)
+    }
+
+    /// 按服务类型新建一条（添加面板选用）。
+    pub fn from_kind(kind: BackendKind) -> Self {
+        if kind == BackendKind::OpenAiCompat {
+            return Self::openai_compat(
+                kind.default_display_name(),
+                "https://api.openai.com/v1",
+                BTreeMap::new(),
+                true,
+            );
+        }
+        Self {
+            id: new_backend_id(),
+            kind,
+            enabled: true,
+            display_name: kind.default_display_name().into(),
+            params: BTreeMap::new(),
+        }
+    }
+
     /// 新建一条可自定义的 OpenAI 兼容接口。
     pub fn openai_compat(
         display_name: impl Into<String>,
@@ -555,26 +571,39 @@ impl Config {
             }
             self.schema = 4;
         }
+        if self.schema < 5 {
+            for preset in OPENAI_PRESETS {
+                let exists = self.backends.iter().any(|b| {
+                    b.kind == BackendKind::OpenAiCompat
+                        && b.params.get("preset").map(|s| s.as_str()) == Some(preset.id)
+                });
+                if !exists {
+                    self.backends.push(preset.to_entry(false));
+                }
+            }
+            self.schema = 5;
+        }
+        if self.schema < 6 {
+            self.backends.retain(|b| b.kind != BackendKind::Tencent);
+            self.schema = 6;
+        }
+        if self.schema < 7 {
+            self.backends.retain(|b| !backend_is_unused_stub(b));
+            if !self
+                .backends
+                .iter()
+                .any(|b| matches!(b.kind, BackendKind::Apple | BackendKind::GoogleFree))
+            {
+                self.backends.insert(0, BackendEntry::system_default());
+            }
+            self.schema = 7;
+        }
         if self.schema == 0 {
             self.schema = SCHEMA_VERSION;
         }
         for b in self.backends.iter_mut() {
             b.ensure_id();
         }
-        // 补齐新增后端（默认禁用），便于设置页展示。
-        // OpenAI 兼容允许用户自建多条，故仅在完全没有时补一条占位。
-        for kind in BackendKind::all() {
-            if !self.backends.iter().any(|b| b.kind == *kind) {
-                self.backends.push(BackendEntry {
-                    id: new_backend_id(),
-                    kind: *kind,
-                    enabled: false,
-                    display_name: kind.default_display_name().into(),
-                    params: BTreeMap::new(),
-                });
-            }
-        }
-        // 同步旧环境变量（仅当配置项还是默认且环境变量存在）
         self.absorb_legacy_env();
     }
 
@@ -630,4 +659,32 @@ impl Config {
             }
         }
     }
+}
+
+/// 旧设置页会把所有通道预填成「已禁用、未配置」占位；这些不再需要。
+fn backend_is_unused_stub(b: &BackendEntry) -> bool {
+    if b.enabled {
+        return false;
+    }
+    if b.kind == BackendKind::Tencent {
+        return true;
+    }
+    if b.params.keys().any(|k| {
+        matches!(
+            k.as_str(),
+            "key_ref" | "key" | "app_id" | "secret_id" | "access_key" | "access_key_id"
+        )
+    }) {
+        return false;
+    }
+    if b.kind == BackendKind::OpenAiCompat && b.params.contains_key("preset") {
+        return true;
+    }
+    if matches!(b.kind, BackendKind::Apple | BackendKind::GoogleFree) {
+        return false;
+    }
+    b.params.is_empty()
+        || b.params
+            .keys()
+            .all(|k| matches!(k.as_str(), "base" | "model" | "auth" | "api_version" | "preset"))
 }

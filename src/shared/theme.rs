@@ -24,6 +24,8 @@ pub struct Palette {
     pub input_bg: Hsla,
     pub tab_active: Hsla,
     pub tab_inactive: Hsla,
+    /// 开关关闭时的滑轨（开启用 accent / primary）
+    pub switch_off: Hsla,
 }
 
 /// 把 GPUI Kit [`Theme`] 同步到窗口外观，并用本应用 [`Palette`] 覆盖语义色，
@@ -36,6 +38,33 @@ pub fn sync_kit_theme(window: Option<&mut Window>, cx: &mut App) {
     // 先切 Light/Dark（会重载默认主题），再叠 Palette（需第二次 update）。
     Theme::sync_system_appearance(window, cx);
     apply_palette_to_theme(&palette(appearance), cx);
+}
+
+/// 设置窗口用实色 Kit 主题，避免毛玻璃透底。
+pub fn sync_kit_theme_opaque(window: Option<&mut Window>, cx: &mut App) {
+    let appearance = window
+        .as_ref()
+        .map(|w| w.appearance())
+        .unwrap_or_else(|| cx.window_appearance());
+    Theme::sync_system_appearance(window, cx);
+    apply_palette_to_theme(&palette(appearance), cx);
+    let panel = opaque_panel(appearance);
+    let chip = opaque_chip(appearance);
+    let elev = opaque_elevated(appearance);
+    Theme::update(cx, |theme| {
+        let c = &mut theme.colors;
+        c.background = panel;
+        c.popover = elev;
+        c.input = chip;
+        c.group_box = chip;
+        c.button = chip;
+        c.secondary = chip;
+        c.sidebar = panel;
+        c.title_bar = panel;
+        c.list = panel;
+        c.list_even = panel;
+        c.muted = chip;
+    });
 }
 
 /// 将弹窗配色写入 Kit Theme，供 Settings 等组件共用。
@@ -100,7 +129,8 @@ pub fn apply_palette_to_theme(p: &Palette, cx: &mut App) {
         c.title_bar_border = p.border;
         c.accordion = transparent_black();
         c.caret = p.accent;
-        c.switch = p.accent;
+        // 关闭态滑轨；开启态走 primary（accent），必须和这里区分开
+        c.switch = p.switch_off;
         c.switch_thumb = hsla(0., 0., 1., 1.);
         c.tab = transparent_black();
         // 与弹窗圆角接近
@@ -134,6 +164,7 @@ pub fn palette(appearance: WindowAppearance) -> Palette {
             input_bg: hsla(0., 0., 1., 0.06),
             tab_active: hsla(211. / 360., 1., 0.62, 0.2),
             tab_inactive: hsla(0., 0., 1., 0.04),
+            switch_off: hsla(0., 0., 0.42, 0.95),
         },
         _ => Palette {
             card: hsla(0., 0., 0.99, light_a),
@@ -151,7 +182,32 @@ pub fn palette(appearance: WindowAppearance) -> Palette {
             input_bg: hsla(0., 0., 0., 0.04),
             tab_active: hsla(211. / 360., 1., 0.5, 0.18),
             tab_inactive: hsla(0., 0., 0., 0.04),
+            switch_off: hsla(0., 0., 0.78, 1.),
         },
+    }
+}
+
+/// 不透明面板底（设置窗口；不要毛玻璃）。
+pub fn opaque_panel(appearance: WindowAppearance) -> Hsla {
+    match appearance {
+        WindowAppearance::Dark | WindowAppearance::VibrantDark => hsla(0., 0., 0.14, 1.),
+        _ => hsla(0., 0., 0.97, 1.),
+    }
+}
+
+/// 浮层卡片（添加服务弹窗）。
+pub fn opaque_elevated(appearance: WindowAppearance) -> Hsla {
+    match appearance {
+        WindowAppearance::Dark | WindowAppearance::VibrantDark => hsla(0., 0., 0.18, 1.),
+        _ => hsla(0., 0., 1., 1.),
+    }
+}
+
+/// 不透明胶囊底。
+pub fn opaque_chip(appearance: WindowAppearance) -> Hsla {
+    match appearance {
+        WindowAppearance::Dark | WindowAppearance::VibrantDark => hsla(0., 0., 0.24, 1.),
+        _ => hsla(0., 0., 0.94, 1.),
     }
 }
 
