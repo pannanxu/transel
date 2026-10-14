@@ -64,9 +64,9 @@ pub fn setup_popup_window(window: &Window, activate: bool) {
 }
 
 /// 固定时保持浮动置顶、失焦不隐藏；取消固定后仍由视图决定是否关闭。
-pub fn apply_popup_pin(window: &Window, pinned: bool) {
+pub fn apply_popup_pin(window: &Window, _pinned: bool) {
     #[cfg(target_os = "macos")]
-    macos_impl::apply_pin(window, pinned);
+    macos_impl::apply_pin(window, _pinned);
     #[cfg(target_os = "windows")]
     windows_impl::setup_popup(window, true);
     #[cfg(target_os = "linux")]

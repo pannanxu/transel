@@ -85,10 +85,8 @@ fn reuse_pinned(cx: &mut App, mode: Mode, ctx: Option<RequestCtx>, origin: Histo
             });
         })
         .is_ok();
-    if ok {
-        if let Some(ctx_inner) = ctx {
-            spawn_translate(view, ctx_inner, origin, cx);
-        }
+    if ok && let Some(ctx_inner) = ctx {
+        spawn_translate(view, ctx_inner, origin, cx);
     }
     ok
 }
@@ -331,7 +329,7 @@ pub fn toggle_pin(cx: &mut App) {
             window.refresh();
         });
         if let Some(view) = POPUP_VIEW.lock().clone() {
-            let _ = view.update(cx, |popup, cx| {
+            view.update(cx, |popup, cx| {
                 popup.pinned = pinned;
                 cx.notify();
             });
