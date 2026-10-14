@@ -21,9 +21,19 @@ use gpui_kit::*;
 use crate::app::config::{BackendEntry, BackendKind, Config, HotkeySpec};
 use crate::app::paths;
 use crate::app::state::AppState;
+use crate::platform;
 use crate::services::ocr::{self, OcrBackendKind};
 use crate::shared::actions::{CloseWindow, UTILITY_KEY_CONTEXT};
+use crate::shared::icons;
 use crate::shared::theme::{LANGUAGES, palette, sync_kit_theme};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SettingsTab {
+    General,
+    Hotkeys,
+    Backends,
+    About,
+}
 
 /// 设置窗口打开期间的草稿（未保存）。
 pub struct SettingsDraft {
@@ -65,6 +75,8 @@ impl Default for SettingsActions {
 
 pub struct SettingsView {
     pub actions: SettingsActions,
+    selected: SettingsTab,
+    drag: Option<platform::ManualDrag>,
     focus: FocusHandle,
     _appearance: Subscription,
 }
@@ -91,6 +103,8 @@ impl SettingsView {
         focus.focus(window, cx);
         Self {
             actions,
+            selected: SettingsTab::General,
+            drag: None,
             focus,
             _appearance: appearance,
         }
@@ -615,7 +629,7 @@ fn openai_backend_item(
             .gap_1()
             .p_2()
             .rounded(px(8.))
-            .bg(p.tab_inactive)
+            .bg(p.pill_bg)
             .child(
                 h_flex()
                     .w_full()
@@ -747,7 +761,7 @@ fn builtin_backend_item(
             .gap_1()
             .p_2()
             .rounded(px(8.))
-            .bg(p.tab_inactive)
+            .bg(p.pill_bg)
             .child(
                 h_flex()
                     .w_full()
@@ -820,9 +834,7 @@ fn paste_field_row(
                 .id(SharedString::from(field_id))
                 .h(px(26.))
                 .rounded(px(5.))
-                .bg(p.input_bg)
-                .border_1()
-                .border_color(p.border)
+                .bg(p.pill_bg)
                 .px_2()
                 .flex_1()
                 .flex()
@@ -887,9 +899,7 @@ fn secret_key_row(
                 .id(SharedString::from(format!("be_key_{id}")))
                 .h(px(26.))
                 .rounded(px(5.))
-                .bg(p.input_bg)
-                .border_1()
-                .border_color(p.border)
+                .bg(p.pill_bg)
                 .px_2()
                 .flex_1()
                 .flex()
@@ -949,89 +959,211 @@ fn secret_key_row(
 
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 外壳与翻译弹窗同一套 Palette；Kit Settings 色已由 sync_kit_theme 对齐。
         let p = palette(window.appearance());
         let view = cx.entity();
         let pages = self.build_pages(view.clone(), cx);
+        let tab_ix = match self.selected {
+            SettingsTab::General => 0,
+            SettingsTab::Hotkeys => 1,
+            SettingsTab::Backends => 2,
+            SettingsTab::About => 3,
+        };
+        let page = pages.into_iter().nth(tab_ix).expect("settings page");
         let status = if cx.has_global::<SettingsDraft>() {
             draft(cx).status.clone().unwrap_or_default()
         } else {
             String::new()
         };
 
-        let topbar = h_flex()
-            .w_full()
+        let nav_item = |id: &'static str,
+                        label: &'static str,
+                        icon: &'static str,
+                        tab: SettingsTab,
+                        selected: bool| {
+            let bg = if selected {
+                p.tab_active
+            } else {
+                transparent_black()
+            };
+            let fg = if selected { p.text } else { p.muted };
+            div()
+                .id(id)
+                .w_full()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.))
+                .px(px(10.))
+                .py(px(7.))
+                .rounded(px(6.))
+                .bg(bg)
+                .cursor_pointer()
+                .hover(move |s| s.bg(if selected { p.tab_active } else { p.hover }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.selected = tab;
+                        cx.notify();
+                    }),
+                )
+                .child(svg().path(icon).size(px(14.)).text_color(fg))
+                .child(div().text_size(px(12.5)).text_color(fg).child(label))
+        };
+
+        let header = div()
+            .id("settings_header")
+            .flex()
+            .flex_row()
             .items_center()
-            .h(px(40.))
-            .px(px(14.))
-            .gap_2()
-            .border_b_1()
-            .border_color(p.divider)
+            .h(px(32.))
+            .px(px(12.))
+            .gap(px(8.))
+            .cursor_default()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, _cx| this.drag = platform::start_drag(window)),
+            )
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, _cx| {
+                if let Some(d) = &this.drag {
+                    if ev.pressed_button == Some(MouseButton::Left) {
+                        platform::drag_move(d);
+                    } else {
+                        this.drag = None;
+                    }
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _cx| this.drag = None),
+            )
             .child(
                 div()
-                    .text_size(px(14.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(p.title)
-                    .child("Transel · 设置"),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(img(icons::LOGO).size(px(16.)).rounded(px(3.)))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.title)
+                            .child("Transel"),
+                    )
+                    .child(div().text_size(px(12.)).text_color(p.muted).child("设置")),
             )
             .child(div().flex_1())
             .child(div().text_xs().text_color(p.muted).child(status))
             .child(
-                Button::new("save")
-                    .primary()
-                    .label("保存")
-                    .with_size(Size::Small)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if !cx.has_global::<SettingsDraft>() {
-                            return;
-                        }
-                        let draft_cfg = draft(cx).cfg.clone();
-                        if let Err(e) = draft_cfg.save(&paths::config_file()) {
-                            draft_mut(cx).status = Some(format!("保存失败: {e}"));
+                div()
+                    .id("settings_save")
+                    .px(px(10.))
+                    .py(px(4.))
+                    .rounded(px(6.))
+                    .bg(p.accent)
+                    .hover(|s| s.bg(p.accent_hover))
+                    .text_size(px(12.))
+                    .text_color(hsla(0., 0., 1., 1.))
+                    .cursor_pointer()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            if !cx.has_global::<SettingsDraft>() {
+                                return;
+                            }
+                            let draft_cfg = draft(cx).cfg.clone();
+                            if let Err(e) = draft_cfg.save(&paths::config_file()) {
+                                draft_mut(cx).status = Some(format!("保存失败: {e}"));
+                                cx.notify();
+                                return;
+                            }
+                            let backend = draft_cfg.ocr_backend.clone();
+                            std::thread::Builder::new()
+                                .name("ocr-switch".into())
+                                .spawn(move || ocr::set_engine_from_config(&backend))
+                                .ok();
+                            cx.global::<AppState>().reload_config(draft_cfg.clone());
+                            (this.actions.on_save)(draft_cfg);
+                            draft_mut(cx).status = Some("已保存并热更新".into());
                             cx.notify();
-                            return;
-                        }
-                        let backend = draft_cfg.ocr_backend.clone();
-                        std::thread::Builder::new()
-                            .name("ocr-switch".into())
-                            .spawn(move || ocr::set_engine_from_config(&backend))
-                            .ok();
-                        cx.global::<AppState>().reload_config(draft_cfg.clone());
-                        (this.actions.on_save)(draft_cfg);
-                        draft_mut(cx).status = Some("已保存并热更新".into());
-                        cx.notify();
-                    })),
+                        }),
+                    )
+                    .child("保存"),
             )
             .child(
-                Button::new("settings_close")
-                    .ghost()
-                    .label("关闭")
-                    .with_size(Size::Small)
-                    .on_click(cx.listener(|this, _, window, _cx| {
-                        (this.actions.on_close)();
-                        window.remove_window();
-                    })),
+                div()
+                    .id("settings_close")
+                    .size(px(22.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.hover))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.close(&CloseWindow, window, cx);
+                        }),
+                    )
+                    .child(svg().path(icons::CLOSE).size(px(14.)).text_color(p.muted)),
             );
 
-        // 侧栏 / 搜索区：贴近旧设置页左导航（浅底 + 右边框），与弹窗色板一致。
-        let sidebar_style = StyleRefinement::default()
-            .bg(transparent_black())
-            .border_r_1()
-            .border_color(p.divider)
-            .text_color(p.text);
-        let header_style = StyleRefinement::default().p(px(10.));
+        let nav = div()
+            .id("settings_nav")
+            .w(px(148.))
+            .h_full()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .px(px(8.))
+            .py(px(10.))
+            .bg(p.pill_bg)
+            .child(nav_item(
+                "nav_general",
+                "常规",
+                icons::SETTINGS,
+                SettingsTab::General,
+                self.selected == SettingsTab::General,
+            ))
+            .child(nav_item(
+                "nav_hotkeys",
+                "快捷键",
+                icons::INPUT,
+                SettingsTab::Hotkeys,
+                self.selected == SettingsTab::Hotkeys,
+            ))
+            .child(nav_item(
+                "nav_backends",
+                "翻译接口",
+                icons::GLOBE,
+                SettingsTab::Backends,
+                self.selected == SettingsTab::Backends,
+            ))
+            .child(div().flex_1())
+            .child(nav_item(
+                "nav_about",
+                "关于",
+                icons::HISTORY,
+                SettingsTab::About,
+                self.selected == SettingsTab::About,
+            ));
 
-        let body = Settings::new("transel-settings")
+        // Kit Settings 自带侧栏；宽设为 0，改用上面的自绘导航，避免搜索框 + 嵌套分组。
+        let kit = Settings::new(SharedString::from(format!("transel-settings-{tab_ix}")))
             .with_size(Size::Small)
-            .with_group_variant(GroupBoxVariant::Fill)
-            .sidebar_width(px(160.))
-            .sidebar_style(&sidebar_style)
-            .header_style(&header_style)
-            .pages(pages);
+            .with_group_variant(GroupBoxVariant::Normal)
+            .sidebar_width(px(0.))
+            .sidebar_size_range(px(0.)..px(0.))
+            .pages(vec![page]);
 
         let card = v_flex()
             .id("settings_card")
             .size_full()
+            .overflow_hidden()
             .bg(p.card)
             .border_1()
             .border_color(p.border)
@@ -1046,14 +1178,25 @@ impl Render for SettingsView {
                     inset: false,
                 }])
             })
-            .child(topbar)
+            .child(header)
             .child(
                 div()
                     .id("settings_body")
                     .flex_1()
                     .min_h(px(0.))
                     .w_full()
-                    .child(body),
+                    .flex()
+                    .flex_row()
+                    .child(nav)
+                    .child(
+                        div()
+                            .id("settings_content")
+                            .flex_1()
+                            .min_w(px(0.))
+                            .min_h(px(0.))
+                            .px(px(4.))
+                            .child(kit),
+                    ),
             );
 
         div()

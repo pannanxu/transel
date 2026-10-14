@@ -36,6 +36,8 @@ echo "==> 生成 Info.plist"
 sed -e "s|\${VERSION}|${VERSION}|g" \
     "${SCRIPT_DIR}/Info.plist" \
     > "${PKG_ROOT}/Contents/Info.plist"
+plutil -lint "${PKG_ROOT}/Contents/Info.plist" >/dev/null
+printf 'APPL????' > "${PKG_ROOT}/Contents/PkgInfo"
 
 ICNS="${SCRIPT_DIR}/icon.icns"
 if [[ ! -f "${ICNS}" ]]; then
@@ -43,20 +45,42 @@ if [[ ! -f "${ICNS}" ]]; then
     exit 1
 fi
 echo "==> 复制图标"
+cp "${ICNS}" "${PKG_ROOT}/Contents/Resources/AppIcon.icns"
 cp "${ICNS}" "${PKG_ROOT}/Contents/Resources/icon.icns"
+
+echo "==> ad-hoc 签名（避免系统判定为损坏）"
+codesign --force --deep --sign - "${PKG_ROOT}"
+xattr -cr "${PKG_ROOT}"
 
 DMG_STAGE="${ROOT}/dist/dmg-root"
 rm -rf "${DMG_STAGE}"
 mkdir -p "${DMG_STAGE}"
-cp -R "${PKG_ROOT}" "${DMG_STAGE}/Transel.app"
+ditto "${PKG_ROOT}" "${DMG_STAGE}/Transel.app"
 ln -s /Applications "${DMG_STAGE}/Applications"
+cp "${ICNS}" "${DMG_STAGE}/.VolumeIcon.icns"
+codesign --force --deep --sign - "${DMG_STAGE}/Transel.app"
 
 DMG_NAME="Transel-${VERSION}-${TARGET}.dmg"
+RW_DMG="${ROOT}/dist/.transel-rw.dmg"
+rm -f "${RW_DMG}" "${ROOT}/dist/${DMG_NAME}"
 echo "==> 创建 ${DMG_NAME}"
 hdiutil create -volname "Transel" \
     -srcfolder "${DMG_STAGE}" \
-    -ov -format UDZO \
-    "${ROOT}/dist/${DMG_NAME}" >/dev/null
+    -ov -format UDRW \
+    "${RW_DMG}" >/dev/null
+MOUNT=$(hdiutil attach -readwrite -nobrowse -noverify "${RW_DMG}" \
+    | sed -n 's/.*\(\/Volumes\/[^[:space:]]*\)$/\1/p' | tail -1)
+if [[ -n "${MOUNT}" && -d "${MOUNT}" ]]; then
+    if command -v SetFile >/dev/null 2>&1; then
+        SetFile -c icnC "${MOUNT}/.VolumeIcon.icns" || true
+        SetFile -a C "${MOUNT}" || true
+        SetFile -a V "${MOUNT}/.VolumeIcon.icns" || true
+    fi
+    hdiutil detach "${MOUNT}" >/dev/null
+fi
+hdiutil convert "${RW_DMG}" -format UDZO -imagekey zlib-level=9 \
+    -o "${ROOT}/dist/${DMG_NAME}" >/dev/null
+rm -f "${RW_DMG}"
 rm -rf "${DMG_STAGE}"
 
 echo "==> 完成：dist/${DMG_NAME}"

@@ -106,14 +106,15 @@ pub fn grab_translate_source() -> Result<TranslateSource, GrabError> {
         return Ok(TranslateSource::Text(t));
     }
 
-    // 2) 文件管理器当前选中（不碰剪贴板）
-    if let Ok(paths) = finder::selected_file_paths()
+    // 2) 仅当前台是文件管理器时用其选中文件。访达在后台仍保留上次选图，
+    //    网页划词读不到 AX 选区时会误走 OCR。
+    if let Ok(paths) = finder::selected_file_paths_if_frontmost()
         && let Some(src) = classify_paths(&paths)
     {
         return Ok(src);
     }
 
-    // 3) 模拟复制，从剪贴板读文件列表 / 图片 / 文本
+    // 3) 模拟复制：文件列表 → 文本 → 图片（网页复制常同时带图片 flavor）
     inspect_after_copy()
 }
 
@@ -195,7 +196,10 @@ fn read_text_file(path: &Path) -> anyhow::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Cmd/Ctrl+C 后检查剪贴板：文件列表 → 图片 → 文本。
+/// Cmd/Ctrl+C 后检查剪贴板：文件列表 → 文本 → 图片。
+///
+/// 浏览器划词复制常同时提供 `public.utf8-plain-text` 和选区截图 flavor；
+/// 若图片优先会把划词翻译误判成 OCR。
 fn inspect_after_copy() -> Result<TranslateSource, GrabError> {
     use enigo::{Direction::*, Enigo, Key, Keyboard, Settings};
 
@@ -229,41 +233,54 @@ fn inspect_after_copy() -> Result<TranslateSource, GrabError> {
     let _ = enigo.key(chord_letter('c'), Click);
     let _ = enigo.key(modifier, Release);
 
-    let mut result = Err(GrabError::Empty);
+    let mut files_src = None;
+    let mut text_src = None;
+    let mut image_src = None;
     for _ in 0..12 {
         std::thread::sleep(Duration::from_millis(30));
 
-        if let Ok(files) = cb.get().file_list() {
+        if files_src.is_none()
+            && let Ok(files) = cb.get().file_list()
+        {
             let files: Vec<PathBuf> = files.into_iter().filter(|p| p.is_file()).collect();
-            if !files.is_empty()
-                && let Some(src) = classify_paths(&files)
-            {
-                result = Ok(src);
-                break;
+            if !files.is_empty() {
+                files_src = classify_paths(&files);
             }
         }
 
-        if let Ok(img) = cb.get_image() {
+        if text_src.is_none()
+            && let Ok(t) = cb.get_text()
+        {
+            let t = t.trim();
+            if !t.is_empty() {
+                text_src = Some(t.to_string());
+            }
+        }
+
+        if image_src.is_none()
+            && let Ok(img) = cb.get_image()
+        {
             match save_clipboard_image(&img) {
-                Ok(path) => {
-                    result = Ok(TranslateSource::Images(vec![path]));
-                    break;
-                }
+                Ok(path) => image_src = Some(path),
                 Err(e) => log::warn!("保存剪贴板图片失败: {e:#}"),
             }
         }
 
-        if let Ok(t) = cb.get_text() {
-            let t = t.trim();
-            if !t.is_empty() {
-                result = Ok(TranslateSource::Text(t.to_string()));
-                break;
-            }
+        if files_src.is_some() || text_src.is_some() {
+            break;
         }
     }
 
     restore_clipboard_text(&mut cb, backup_text);
-    result
+    if let Some(src) = files_src {
+        Ok(src)
+    } else if let Some(t) = text_src {
+        Ok(TranslateSource::Text(t))
+    } else if let Some(path) = image_src {
+        Ok(TranslateSource::Images(vec![path]))
+    } else {
+        Err(GrabError::Empty)
+    }
 }
 
 fn restore_clipboard_text(cb: &mut arboard::Clipboard, backup: Option<String>) {

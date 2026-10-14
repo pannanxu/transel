@@ -12,6 +12,8 @@ pub use view::{
 };
 
 use gpui_kit::*;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 
 use crate::app::history::HistoryOrigin;
 use crate::app::state::AppState;
@@ -19,28 +21,26 @@ use crate::services::translate::RequestCtx;
 use crate::shared::chrome::window_background;
 use crate::shell::window::{PopupWindowOpts, open_root_window};
 
+static POPUP_VIEW: Lazy<Mutex<Option<Entity<TranslatePopup>>>> = Lazy::new(|| Mutex::new(None));
+
+pub(crate) fn forget_view() {
+    *POPUP_VIEW.lock() = None;
+}
+
 /// 关闭当前翻译弹窗并取消进行中的请求。
 pub fn close(cx: &mut App) {
     cx.global::<AppState>().translate.cancel_active();
+    *POPUP_VIEW.lock() = None;
     let handle = cx.global_mut::<AppState>().popup.lock().take();
     if let Some(h) = handle {
         let _ = h.update(cx, |_, window, _| window.remove_window());
     }
 }
 
-/// 打开或替换翻译弹窗。
-pub fn show(
-    cx: &mut App,
-    mode: Mode,
-    ctx: Option<RequestCtx>,
-    mouse: Option<(f32, f32)>,
-    origin: HistoryOrigin,
-) {
-    close(cx);
-    let state = cx.global::<AppState>();
-    let mode = match (&mode, &ctx) {
+fn resolve_mode(cx: &App, mode: Mode, ctx: &Option<RequestCtx>) -> Mode {
+    match (&mode, ctx) {
         (Mode::Loading(_), Some(c)) => {
-            let names = state.translate.backend_names();
+            let names = cx.global::<AppState>().translate.backend_names();
             if names.is_empty() {
                 Mode::Error("没有启用的翻译后端".into())
             } else {
@@ -56,7 +56,62 @@ pub fn show(
             }
         }
         _ => mode,
+    }
+}
+
+fn reuse_pinned(
+    cx: &mut App,
+    mode: Mode,
+    ctx: Option<RequestCtx>,
+    origin: HistoryOrigin,
+) -> bool {
+    let Some(view) = POPUP_VIEW.lock().clone() else {
+        return false;
     };
+    let Some(handle) = *cx.global::<AppState>().popup.lock() else {
+        *POPUP_VIEW.lock() = None;
+        return false;
+    };
+    if handle.update(cx, |_, _, _| ()).is_err() {
+        *POPUP_VIEW.lock() = None;
+        *cx.global_mut::<AppState>().popup.lock() = None;
+        return false;
+    }
+    let pinned = view.read(cx).pinned;
+    if !pinned {
+        return false;
+    }
+
+    cx.global::<AppState>().translate.cancel_active();
+    let ok = handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |popup, cx| {
+                popup.reuse_for_request(mode, ctx.as_ref(), origin, window, cx);
+            });
+        })
+        .is_ok();
+    if ok {
+        if let Some(ctx_inner) = ctx {
+            spawn_translate(view, ctx_inner, origin, cx);
+        }
+    }
+    ok
+}
+
+/// 打开或替换翻译弹窗。
+pub fn show(
+    cx: &mut App,
+    mode: Mode,
+    ctx: Option<RequestCtx>,
+    mouse: Option<(f32, f32)>,
+    origin: HistoryOrigin,
+) {
+    let mode = resolve_mode(cx, mode, &ctx);
+    if reuse_pinned(cx, mode.clone(), ctx.clone(), origin) {
+        return;
+    }
+    close(cx);
+    let state = cx.global::<AppState>();
     let follow_mouse = state.config().popup_follow_mouse;
     let size = content_size(
         cx,
@@ -113,11 +168,20 @@ pub fn show(
             if let Some(ctx_inner) = ctx.clone() {
                 spawn_translate(view.clone(), ctx_inner, origin, cx);
             }
+            *POPUP_VIEW.lock() = Some(view.clone());
             view
         }
     }) {
         Ok(handle) => {
             *cx.global_mut::<AppState>().popup.lock() = Some(handle);
+            if pinned {
+                cx.global::<AppState>()
+                    .pinned
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                let _ = handle.update(cx, |_, window, _| {
+                    crate::platform::apply_popup_pin(window, true);
+                });
+            }
         }
         Err(e) => log::error!("打开弹窗失败: {e:#}"),
     }
@@ -257,18 +321,25 @@ pub fn open_input(cx: &mut App, mouse: Option<(f32, f32)>) {
 
 /// 切换固定。
 pub fn toggle_pin(cx: &mut App) {
-    let handle = {
+    let (handle, pinned) = {
         let state = cx.global::<AppState>();
-        let new = !state.pinned.load(std::sync::atomic::Ordering::Relaxed);
+        let pinned = !state.pinned.load(std::sync::atomic::Ordering::Relaxed);
         state
             .pinned
-            .store(new, std::sync::atomic::Ordering::Relaxed);
-        log::info!("弹窗固定: {new}");
-        *state.popup.lock()
+            .store(pinned, std::sync::atomic::Ordering::Relaxed);
+        log::info!("弹窗固定: {pinned}");
+        (*state.popup.lock(), pinned)
     };
     if let Some(h) = handle {
         let _ = h.update(cx, |_root, window, _cx| {
+            crate::platform::apply_popup_pin(window, pinned);
             window.refresh();
         });
+        if let Some(view) = POPUP_VIEW.lock().clone() {
+            let _ = view.update(cx, |popup, cx| {
+                popup.pinned = pinned;
+                cx.notify();
+            });
+        }
     }
 }

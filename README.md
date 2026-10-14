@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="./docs/demo1.png">
+</div>
+
 # Transel
 
 跨平台划词翻译工具。选中文字后按下热键，译文显示在鼠标附近的浮窗中。
@@ -60,14 +64,16 @@ Windows / Linux 上 `Cmd` 对应 **Ctrl**。可在设置中修改；将按键留
 ### macOS
 
 1. 下载 `Transel-<version>-aarch64-apple-darwin.dmg`（Apple 芯片）或 `Transel-<version>-x86_64-apple-darwin.dmg`（Intel）。
-2. 打开磁盘映像，将 Transel 拖入「应用程序」。
+2. 打开磁盘映像，将 Transel 拖入「应用程序」。之后可用聚焦（Spotlight）或启动台搜索「Transel」。
 3. 打开 **系统设置 → 隐私与安全性 → 辅助功能**，启用 Transel。若从终端启动，请授权「终端」或 iTerm，然后完全退出并重新打开。未授权时无法读取选区。
 
-若提示无法打开未验证的开发者应用：
+若提示「已损坏，无法打开」或无法打开未验证的开发者应用：这是 Gatekeeper 拦截未公证的下载包，不是文件真的坏了。在终端执行：
 
 ```bash
-xattr -d com.apple.quarantine /Applications/Transel.app
+xattr -cr /Applications/Transel.app
 ```
+
+然后再次打开。从浏览器下载的 DMG 也会带隔离属性，可先对磁盘映像执行 `xattr -cr ~/Downloads/Transel-*.dmg` 再打开。
 
 ### Windows
 

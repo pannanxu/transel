@@ -4,19 +4,24 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::app::state::AppState;
 use crate::platform;
 use crate::shared::actions::{CloseWindow, CopyResult, UTILITY_KEY_CONTEXT};
 use crate::shared::chrome::EmptyState;
+use crate::shared::icons;
 use crate::shared::loading;
+use crate::shared::text_select::selectable_plain;
 use crate::shared::theme::palette;
 use crate::shared::tokens::SHADOW_MARGIN;
+use crate::shared::tooltip;
+
+const PAD: f32 = 14.;
+const HEADER_H: f32 = 24.;
+const GAP: f32 = 10.;
 
 #[derive(Clone)]
 pub struct OcrActions {
@@ -46,6 +51,7 @@ pub struct OcrView {
     pub loading: bool,
     pub actions: OcrActions,
     focus: FocusHandle,
+    drag: Option<platform::ManualDrag>,
 }
 
 impl OcrView {
@@ -64,19 +70,26 @@ impl OcrView {
             loading: false,
             actions,
             focus,
+            drag: None,
         }
     }
 
-    pub fn loading(actions: OcrActions, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn loading(
+        actions: OcrActions,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        existing: String,
+    ) -> Self {
         let focus = cx.focus_handle().tab_stop(true);
         focus.focus(window, cx);
         Self {
-            text: String::new(),
+            text: existing,
             status: Some("识别中…".into()),
             copied: false,
             loading: true,
             actions,
             focus,
+            drag: None,
         }
     }
 
@@ -89,13 +102,14 @@ impl OcrView {
         };
     }
 
-    pub fn apply_result(&mut self, new_text: &str, append: bool) {
+    pub fn apply_result(&mut self, new_text: &str) {
         let t = new_text.trim();
         self.loading = false;
         if t.is_empty() {
             self.status = Some("没有识别出文字".into());
             return;
         }
+        let append = self.actions.continuous.load(Ordering::Relaxed);
         if append && !self.text.trim().is_empty() {
             self.text.push_str("\n\n");
             self.text.push_str(t);
@@ -137,121 +151,211 @@ impl OcrView {
     }
 }
 
+fn icon_button(
+    id: &'static str,
+    icon: &'static str,
+    color: Hsla,
+    hover: Hsla,
+    tip: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let tip = tip.into();
+    div()
+        .id(id)
+        .size(px(22.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(6.))
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover))
+        .active(move |s| s.opacity(0.7))
+        .tooltip(tooltip::build(tip))
+        .child(svg().path(icon).size(px(14.)).text_color(color))
+}
+
 impl Render for OcrView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(window.appearance());
-        let theme = cx.theme();
         let continuous = self.actions.continuous.load(Ordering::Relaxed);
         let busy = self.loading;
+        let can_use = !busy && !self.text.trim().is_empty();
         let status = self.status.clone();
-        let status_bar = status.clone().filter(|_| busy || self.text.is_empty());
 
-        let body: AnyElement = if self.loading {
-            div()
-                .flex_1()
-                .p_3()
-                .child(loading::loading_block("正在识别…", &p))
-                .into_any_element()
+        let body: AnyElement = if self.loading && self.text.is_empty() {
+            loading::loading_row("正在识别…", &p)
         } else if self.text.is_empty() {
             EmptyState::new("识别结果会显示在这里")
-                .detail(status.unwrap_or_else(|| "截图选区后开始识别".into()))
+                .detail(status.clone().unwrap_or_else(|| "截图选区后开始识别".into()))
                 .into_any_element()
         } else {
             div()
+                .id("ocr_text")
                 .flex_1()
                 .min_h_0()
-                .p_3()
-                .child(
-                    div()
-                        .id("ocr_text")
-                        .size_full()
-                        .p_2()
-                        .rounded(px(6.))
-                        .bg(theme.secondary)
-                        .border_1()
-                        .border_color(theme.border)
-                        .overflow_y_scrollbar()
-                        .text_sm()
-                        .text_color(theme.foreground)
-                        .child(self.text.clone()),
-                )
+                .w_full()
+                .overflow_y_scrollbar()
+                .when(self.loading, |el| {
+                    el.child(loading::loading_row("正在识别…", &p))
+                })
+                .child(selectable_plain(
+                    "ocr_body",
+                    &self.text,
+                    p.text,
+                    14.,
+                    21.,
+                ))
                 .into_any_element()
         };
+
+        let copy_svg = if self.copied {
+            icons::CHECK
+        } else {
+            icons::COPY
+        };
+        let copy_color = if self.copied { p.accent } else { p.muted };
+        let cont_color = if continuous { p.accent } else { p.muted };
+        let action_color = if can_use { p.muted } else { p.muted.opacity(0.35) };
+
+        let header = div()
+            .id("ocr_header")
+            .flex()
+            .flex_row()
+            .items_center()
+            .h(px(HEADER_H))
+            .gap(px(8.))
+            .cursor_default()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, _cx| this.drag = platform::start_drag(window)),
+            )
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, _cx| {
+                if let Some(d) = &this.drag {
+                    if ev.pressed_button == Some(MouseButton::Left) {
+                        platform::drag_move(d);
+                    } else {
+                        this.drag = None;
+                    }
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _cx| this.drag = None),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(img(icons::LOGO).size(px(16.)).rounded(px(3.)))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.title)
+                            .child("OCR"),
+                    ),
+            )
+            .when_some(status.filter(|_| busy), |el, s| {
+                el.child(div().text_size(px(11.)).text_color(p.muted).child(s))
+            })
+            .child(div().flex_1())
+            .child(
+                icon_button(
+                    "ocr_continuous",
+                    icons::REPEAT,
+                    cont_color,
+                    p.hover,
+                    if continuous {
+                        "关闭连续识别"
+                    } else {
+                        "开启连续识别"
+                    },
+                )
+                    .when(continuous, |el| el.bg(p.pill_bg))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            let on = !this.actions.continuous.load(Ordering::Relaxed);
+                            this.actions.continuous.store(on, Ordering::Relaxed);
+                            cx.global::<AppState>()
+                                .ocr_continuous
+                                .store(on, Ordering::Relaxed);
+                            (this.actions.on_toggle_continuous)(on);
+                            cx.notify();
+                        }),
+                    ),
+            )
+            .child(
+                icon_button(
+                    "ocr_translate",
+                    icons::LANGUAGES,
+                    action_color,
+                    p.hover,
+                    "翻译识别结果",
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        if this.loading || this.text.trim().is_empty() {
+                            return;
+                        }
+                        (this.actions.on_translate)(this.text.clone());
+                    }),
+                ),
+            )
+            .child(
+                icon_button(
+                    "ocr_copy",
+                    copy_svg,
+                    copy_color,
+                    p.hover,
+                    if self.copied { "已复制" } else { "复制" },
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.copy_result(&CopyResult, window, cx);
+                    }),
+                ),
+            )
+            .child(
+                icon_button("ocr_close", icons::CLOSE, p.muted, p.hover, "关闭").on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.close(&CloseWindow, window, cx);
+                    }),
+                ),
+            );
 
         let card = div()
             .id("ocr_card")
             .size_full()
             .flex()
             .flex_col()
-            .bg(theme.popover)
-            .text_color(theme.popover_foreground)
-            .border_1()
-            .border_color(theme.border)
+            .gap(px(GAP))
+            .p(px(PAD))
             .rounded(px(platform::CORNER_RADIUS as f32))
-            .overflow_hidden()
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .h_10()
-                    .px_3()
-                    .gap_2()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("OCR"),
-                    )
-                    .when_some(status_bar, |el, s| {
-                        el.child(div().text_xs().text_color(theme.muted_foreground).child(s))
-                    })
-                    .child(div().flex_1())
-                    .child(
-                        Switch::new("ocr_continuous")
-                            .label("连续识别")
-                            .checked(continuous)
-                            .on_change(cx.listener(|this, checked: &bool, _, cx| {
-                                this.actions.continuous.store(*checked, Ordering::Relaxed);
-                                (this.actions.on_toggle_continuous)(*checked);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("ocr_translate")
-                            .primary()
-                            .label("翻译")
-                            .disabled(busy || self.text.is_empty())
-                            .with_size(gpui_kit::component::Size::Small)
-                            .on_click(cx.listener(|this, _, _, _| {
-                                if this.loading || this.text.trim().is_empty() {
-                                    return;
-                                }
-                                (this.actions.on_translate)(this.text.clone());
-                            })),
-                    )
-                    .child(
-                        Button::new("ocr_copy")
-                            .ghost()
-                            .label(if self.copied { "已复制" } else { "复制" })
-                            .disabled(busy || self.text.is_empty())
-                            .with_size(gpui_kit::component::Size::Small)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.copy_result(&CopyResult, window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("ocr_close")
-                            .ghost()
-                            .label("关闭")
-                            .with_size(gpui_kit::component::Size::Small)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.close(&CloseWindow, window, cx);
-                            })),
-                    ),
-            )
+            .border_1()
+            .border_color(p.border)
+            .bg(p.card)
+            .when(SHADOW_MARGIN > 0., |el| {
+                el.shadow(vec![BoxShadow {
+                    color: p.shadow,
+                    offset: point(px(0.), px(4.)),
+                    blur_radius: px(10.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }])
+            })
+            .font_family(".SystemUIFont")
+            .cursor_default()
+            .child(header)
+            .child(div().h(px(1.)).w_full().bg(p.divider))
             .child(body);
 
         div()

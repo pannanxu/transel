@@ -48,6 +48,7 @@ pub fn setup_popup_window(window: &Window, activate: bool) {
     {
         let _ = activate;
         macos_impl::install_vibrancy(window);
+        macos_impl::apply_pin(window, false);
     }
     #[cfg(target_os = "windows")]
     windows_impl::setup_popup(window, activate);
@@ -59,6 +60,20 @@ pub fn setup_popup_window(window: &Window, activate: bool) {
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         let _ = (window, activate);
+    }
+}
+
+/// 固定时保持浮动置顶、失焦不隐藏；取消固定后仍由视图决定是否关闭。
+pub fn apply_popup_pin(window: &Window, pinned: bool) {
+    #[cfg(target_os = "macos")]
+    macos_impl::apply_pin(window, pinned);
+    #[cfg(target_os = "windows")]
+    windows_impl::setup_popup(window, true);
+    #[cfg(target_os = "linux")]
+    linux_impl::setup_popup(window);
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (window, pinned);
     }
 }
 
@@ -78,9 +93,9 @@ mod macos_impl {
     use objc2::runtime::AnyObject;
     use objc2::{MainThreadMarker, MainThreadOnly, msg_send};
     use objc2_app_kit::{
-        NSAutoresizingMaskOptions, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-        NSVisualEffectState, NSVisualEffectView, NSWindowButton, NSWindowOrderingMode,
-        NSWindowStyleMask,
+        NSAutoresizingMaskOptions, NSFloatingWindowLevel, NSView, NSVisualEffectBlendingMode,
+        NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
+        NSWindowButton, NSWindowOrderingMode, NSWindowStyleMask,
     };
     use objc2_foundation::NSString;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -153,6 +168,23 @@ mod macos_impl {
                 }
             }
             nswindow.invalidateShadow();
+        }
+    }
+
+    fn nswindow_of(window: &gpui_kit::Window) -> Option<Retained<NSWindow>> {
+        gpui_view(window)?.window()
+    }
+
+    /// NSPanel 默认 hidesOnDeactivate=YES，点回浏览器会把翻译窗藏掉。
+    /// 固定后关掉该行为并保持 Floating 层级。
+    pub fn apply_pin(window: &gpui_kit::Window, pinned: bool) {
+        let Some(nswindow) = nswindow_of(window) else {
+            return;
+        };
+        nswindow.setHidesOnDeactivate(false);
+        nswindow.setLevel(NSFloatingWindowLevel);
+        if pinned {
+            nswindow.orderFrontRegardless();
         }
     }
 

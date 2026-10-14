@@ -2,14 +2,25 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Transel</string>
-  <key>CFBundleIdentifier</key><string>dev.transel</string>
-  <key>CFBundleExecutable</key><string>transel</string>
-  <key>CFBundleVersion</key><string>0.1.0</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>LSMinimumSystemVersion</key><string>11.0</string>
-  <!-- 不显示 Dock 图标，只在菜单栏托盘常驻 -->
-  <key>LSUIElement</key><true/>
-  <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleName</key>
+  <string>Transel</string>
+  <key>CFBundleDisplayName</key>
+  <string>Transel</string>
+  <key>CFBundleIdentifier</key>
+  <string>dev.transel</string>
+  <key>CFBundleExecutable</key>
+  <string>transel</string>
+  <key>CFBundleVersion</key>
+  <string>0.1.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.utilities</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
 </dict>
 </plist>

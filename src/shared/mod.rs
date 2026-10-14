@@ -7,3 +7,4 @@ pub mod loading;
 pub mod text_select;
 pub mod theme;
 pub mod tokens;
+pub mod tooltip;

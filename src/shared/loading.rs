@@ -19,6 +19,15 @@ fn accent_spinner(size: gpui_kit::component::Size, color: Hsla) -> Spinner {
 
 /// 行内加载指示。
 pub fn loading_row(label: impl Into<SharedString>, p: &Palette) -> AnyElement {
+    loading_row_with_id(label, "loading_shimmer", p)
+}
+
+/// 行内加载指示；多通道并列时需各自独立 `id`。
+pub fn loading_row_with_id(
+    label: impl Into<SharedString>,
+    id: impl Into<SharedString>,
+    p: &Palette,
+) -> AnyElement {
     div()
         .flex()
         .flex_row()
@@ -27,7 +36,7 @@ pub fn loading_row(label: impl Into<SharedString>, p: &Palette) -> AnyElement {
         .child(accent_spinner(gpui_kit::component::Size::Small, p.accent))
         .child(
             ShimmerText::new(label)
-                .id("loading_shimmer")
+                .id(id.into())
                 .text_sm()
                 .text_color(p.muted),
         )

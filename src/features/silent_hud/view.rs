@@ -1,7 +1,7 @@
 //! 静默 HUD：小圆角条，左侧加载图标 + 右侧关闭按钮。
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use gpui_kit::component::ActiveTheme;
@@ -14,14 +14,14 @@ use crate::shared::theme::palette;
 
 pub struct SilentHudView {
     _label: SharedString,
-    _cancel: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
 }
 
 impl SilentHudView {
     pub fn new(label: SharedString, cancel: Arc<AtomicBool>) -> Self {
         Self {
             _label: label,
-            _cancel: cancel,
+            cancel,
         }
     }
 }
@@ -39,6 +39,8 @@ impl Render for SilentHudView {
             .justify_center()
             .child(
                 div()
+                    .id("silent_hud_card")
+                    .occlude()
                     .flex()
                     .flex_row()
                     .items_center()
@@ -49,6 +51,7 @@ impl Render for SilentHudView {
                     .bg(cx.theme().popover)
                     .border_1()
                     .border_color(cx.theme().border)
+                    .cursor_pointer()
                     .shadow(vec![BoxShadow {
                         color: p.shadow.opacity(0.4),
                         offset: point(px(0.), px(2.)),
@@ -56,6 +59,14 @@ impl Render for SilentHudView {
                         spread_radius: px(0.),
                         inset: false,
                     }])
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.cancel.store(true, Ordering::SeqCst);
+                            silent_hud::stop_from_window(window, cx);
+                        }),
+                    )
                     .child(
                         Icon::default()
                             .path(icons::LOADER_CIRCLE)
@@ -79,16 +90,7 @@ impl Render for SilentHudView {
                             .items_center()
                             .justify_center()
                             .rounded(px(4.))
-                            .cursor_pointer()
                             .hover(|s| s.bg(p.hover))
-                            .active(|s| s.opacity(0.7))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|_, _, _, cx| {
-                                    cx.stop_propagation();
-                                    silent_hud::request_stop(cx);
-                                }),
-                            )
                             .child(
                                 Icon::default()
                                     .path(icons::CLOSE)

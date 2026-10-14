@@ -30,6 +30,10 @@ pub const LANGUAGES: &str = "icons/languages.svg";
 pub const MESSAGE: &str = "icons/message-square.svg";
 pub const CPU: &str = "icons/cpu.svg";
 pub const LOADER_CIRCLE: &str = "icons/loader-circle.svg";
+pub const REPEAT: &str = "icons/repeat.svg";
+pub const LOGO: &str = "images/icon.png";
+
+const LOGO_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/packaging/icon.png"));
 
 gpui_kit::assets::icon_assets!(
     ExtraIcons,
@@ -47,6 +51,7 @@ gpui_kit::assets::icon_assets!(
         MessageSquare,
         Cpu,
         LoaderCircle,
+        Repeat,
     ]
 );
 
@@ -85,6 +90,9 @@ pub struct AppAssets;
 
 impl AssetSource for AppAssets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
+        if path == LOGO {
+            return Ok(Some(Cow::Borrowed(LOGO_PNG)));
+        }
         if let Some(bytes) = ExtraIcons.load(path)? {
             return Ok(Some(bytes));
         }
@@ -94,6 +102,9 @@ impl AssetSource for AppAssets {
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut paths = gpui_kit::assets::Assets.list(path)?;
         paths.extend(ExtraIcons.list(path)?);
+        if path.is_empty() || path == "images" || path == "images/" {
+            paths.push(LOGO.into());
+        }
         paths.sort();
         paths.dedup();
         Ok(paths)

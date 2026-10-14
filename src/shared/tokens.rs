@@ -23,7 +23,7 @@ pub const UTILITY_ORIGIN_Y: f32 = 120.;
 
 /// 列表类 utility 窗口默认尺寸。
 pub const HISTORY_SIZE: (f32, f32) = (640., 520.);
-pub const SETTINGS_SIZE: (f32, f32) = (720., 560.);
+pub const SETTINGS_SIZE: (f32, f32) = (780., 580.);
 pub const FAVORITES_SIZE: (f32, f32) = (520., 480.);
 pub const OCR_SIZE: (f32, f32) = (520., 420.);
 

@@ -244,13 +244,25 @@ pub fn close_window(cx: &mut App) {
     }
 }
 
-pub fn ensure_loading(cx: &mut App) {
-    let continuous = cx
-        .global::<AppState>()
+fn is_continuous(cx: &App) -> bool {
+    cx.global::<AppState>()
         .ocr_continuous
-        .load(std::sync::atomic::Ordering::Relaxed);
+        .load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn merge_continuous(prev: Option<&str>, next: &str) -> String {
+    let next = next.trim();
+    match prev.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(prev) if !next.is_empty() => format!("{prev}\n\n{next}"),
+        Some(prev) => prev.to_string(),
+        None => next.to_string(),
+    }
+}
+
+pub fn ensure_loading(cx: &mut App) {
     if let Some(view) = OCR_VIEW.lock().clone() {
         view.update(cx, |this, cx| {
+            let continuous = this.actions.continuous.load(std::sync::atomic::Ordering::Relaxed);
             if !continuous {
                 this.text.clear();
             }
@@ -259,22 +271,28 @@ pub fn ensure_loading(cx: &mut App) {
         });
         return;
     }
-    open_window(cx, String::new(), true);
+    let prev = if is_continuous(cx) {
+        OCR_CONTINUOUS_BUF.lock().clone().unwrap_or_default()
+    } else {
+        String::new()
+    };
+    open_window(cx, prev, true);
 }
 
 pub fn finish_window(cx: &mut App, text: String) {
-    let continuous = cx
-        .global::<AppState>()
-        .ocr_continuous
-        .load(std::sync::atomic::Ordering::Relaxed);
     if let Some(view) = OCR_VIEW.lock().clone() {
         view.update(cx, |this, cx| {
-            this.apply_result(&text, continuous);
+            this.apply_result(&text);
             *OCR_CONTINUOUS_BUF.lock() = Some(this.text.clone());
             cx.notify();
         });
         return;
     }
+    let text = if is_continuous(cx) {
+        merge_continuous(OCR_CONTINUOUS_BUF.lock().as_deref(), &text)
+    } else {
+        text
+    };
     open_window(cx, text, false);
 }
 
@@ -341,7 +359,7 @@ pub fn open_window(cx: &mut App, text: String, loading: bool) {
             continuous: cont.clone(),
         };
         let view = if loading {
-            cx.new(|cx| OcrView::loading(actions, window, cx))
+            cx.new(|cx| OcrView::loading(actions, window, cx, text.clone()))
         } else {
             cx.new(|cx| OcrView::new(text.clone(), actions, window, cx))
         };

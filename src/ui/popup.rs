@@ -116,8 +116,6 @@ pub struct TranslatePopup {
     pub actions: PopupActions,
     pub focus: FocusHandle,
     pub source_input: Entity<TextareaState>,
-    /// 原文输入框是否聚焦（聚焦时允许多行 auto-grow）
-    source_focused: bool,
     /// 语言方向条（独立组件：触发条 + 展开面板）
     lang_dir: Entity<LangDirection>,
     request_id: u64,
@@ -165,7 +163,6 @@ impl TranslatePopup {
                     }
                 }
                 InputEvent::Focus => {
-                    this.source_focused = true;
                     this.source_input.update(cx, |input, cx| {
                         input.set_auto_grow(1, SOURCE_MAX_ROWS, cx);
                     });
@@ -173,7 +170,6 @@ impl TranslatePopup {
                     cx.notify();
                 }
                 InputEvent::Blur => {
-                    this.source_focused = false;
                     // 失焦后若仍是单行文本，收回到一行；多行/超长内容保持展开以便阅读。
                     let text = this.source_input.read(cx).value().to_string();
                     let keep_multi = text.contains('\n') || source_needs_wrap(&text);
@@ -219,7 +215,6 @@ impl TranslatePopup {
             actions,
             focus: cx.focus_handle(),
             source_input,
-            source_focused,
             lang_dir,
             request_id: 0,
             pending_resize: None,
@@ -872,9 +867,7 @@ impl Render for TranslatePopup {
                     .px(px(8.))
                     .py(px(4.))
                     .rounded(px(6.))
-                    .bg(p.input_bg)
-                    .border_1()
-                    .border_color(if self.source_focused { p.accent } else { p.border })
+                    .bg(p.pill_bg)
                     .cursor_text()
                     .on_mouse_down(
                         MouseButton::Left,

@@ -16,6 +16,7 @@ use gpui_kit::component::animation::ease_out_cubic;
 use gpui_kit::component::collapsible::Collapsible;
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::shimmer::ShimmerText;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -31,13 +32,14 @@ struct ResizeAnim {
 use crate::shared::text_select::{selectable_markdown, selectable_plain};
 
 use super::lang_direction::{LangDirection, LangDirectionEvent, LangSide};
-use crate::app::history::{HistoryEntry, TranslationResult};
+use crate::app::history::{HistoryEntry, HistoryOrigin, TranslationResult};
 use crate::app::state::AppState;
 use crate::services::translate::{BatchEvent, BatchResult, RequestCtx, SingleResult};
 use crate::shared::loading;
 use crate::shared::theme::{Palette, lang_label, normalize_lang_code, palette};
 
 use crate::shared::icons;
+use crate::shared::tooltip;
 
 /// 翻译弹窗默认 / 最小卡片内容宽度（不含阴影边距）。
 pub const MIN_W: f32 = 400.;
@@ -116,8 +118,6 @@ pub struct TranslatePopup {
     pub actions: PopupActions,
     pub focus: FocusHandle,
     pub source_input: Entity<TextareaState>,
-    /// 原文输入框是否聚焦（聚焦时允许多行 auto-grow）
-    source_focused: bool,
     /// 语言方向条（独立组件：触发条 + 展开面板）
     lang_dir: Entity<LangDirection>,
     /// 各翻译通道是否展开（按 backend 名）；缺省视为展开
@@ -162,6 +162,8 @@ impl TranslatePopup {
         let activation = cx.observe_window_activation(window, |this: &mut Self, window, cx| {
             if window.is_window_active() {
                 this.was_active = true;
+            } else if this.was_active && this.pinned {
+                crate::platform::apply_popup_pin(window, true);
             } else if this.was_active && !this.pinned {
                 // 语言 Popover 打开时可能短暂失焦，不要关掉翻译窗
                 if this.lang_dir.read(cx).is_expanded() {
@@ -180,7 +182,6 @@ impl TranslatePopup {
                     }
                 }
                 InputEvent::Focus => {
-                    this.source_focused = true;
                     this.source_input.update(cx, |input, cx| {
                         input.set_auto_grow(1, SOURCE_MAX_ROWS, cx);
                     });
@@ -188,7 +189,6 @@ impl TranslatePopup {
                     cx.notify();
                 }
                 InputEvent::Blur => {
-                    this.source_focused = false;
                     // 失焦后若仍是单行文本，收回到一行；多行/超长内容保持展开以便阅读。
                     let text = this.source_input.read(cx).value().to_string();
                     let keep_multi = text.contains('\n') || source_needs_wrap(&text);
@@ -238,7 +238,6 @@ impl TranslatePopup {
             actions,
             focus,
             source_input,
-            source_focused,
             lang_dir,
             channel_open: HashMap::new(),
             request_id: 0,
@@ -335,6 +334,8 @@ impl TranslatePopup {
         cx.global::<AppState>().translate.cancel_active();
         self.lang_dir.update(cx, |ld, cx| ld.close(cx));
         (self.actions.on_close)();
+        super::forget_view();
+        let _ = cx.global_mut::<AppState>().popup.lock().take();
         window.remove_window();
     }
 
@@ -612,9 +613,46 @@ impl TranslatePopup {
         // Batch 用输入框原文 + 当前折叠状态，避免 content_size 忽略 channel_open。
         self.schedule_resize_from_content(cx);
     }
+
+    /// 固定窗口上发起新翻译：原地换内容，不关窗、不跟鼠标跳走。
+    pub fn reuse_for_request(
+        &mut self,
+        mode: Mode,
+        ctx: Option<&RequestCtx>,
+        origin: HistoryOrigin,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.origin = origin;
+        self.copied = false;
+        self.channel_open.clear();
+        self.active_tab = 0;
+        if let Some(ctx_inner) = ctx {
+            let display = if ctx_inner.source != ctx_inner.prepared {
+                ctx_inner.prepared.clone()
+            } else {
+                ctx_inner.source.clone()
+            };
+            self.source_input.update(cx, |input, cx| {
+                input.set_value(display, window, cx);
+            });
+            self.prepared_for_history = Some(ctx_inner.prepared.clone());
+            self.was_split = ctx_inner.source != ctx_inner.prepared;
+        }
+        self.apply_mode(mode, cx);
+        crate::platform::apply_popup_pin(window, true);
+        cx.notify();
+    }
 }
 
-fn icon_button(id: &'static str, icon: &'static str, color: Hsla, hover: Hsla) -> Stateful<Div> {
+fn icon_button(
+    id: &'static str,
+    icon: &'static str,
+    color: Hsla,
+    hover: Hsla,
+    tip: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let tip = tip.into();
     div()
         .id(id)
         .size(px(22.))
@@ -625,6 +663,7 @@ fn icon_button(id: &'static str, icon: &'static str, color: Hsla, hover: Hsla) -
         .cursor_pointer()
         .hover(move |s| s.bg(hover))
         .active(move |s| s.opacity(0.7))
+        .tooltip(tooltip::build(tip))
         .child(svg().path(icon).size(px(14.)).text_color(color))
 }
 
@@ -839,9 +878,6 @@ pub fn content_size(
     layout_for_mode(cx, mode, mouse).size
 }
 
-#[allow(dead_code)]
-fn _unused_marker() {}
-
 impl Render for TranslatePopup {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // 与全局钉住状态同步（热键 / 托盘切换后刷新）
@@ -910,10 +946,18 @@ impl Render for TranslatePopup {
             )
             .child(
                 div()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(p.title)
-                    .child("Transel"),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(img(icons::LOGO).size(px(16.)).rounded(px(3.)))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.title)
+                            .child("Transel"),
+                    ),
             )
             .child(
                 div()
@@ -924,7 +968,7 @@ impl Render for TranslatePopup {
             .when(show_speak, |el| {
                 let t = speak_text.clone().unwrap_or_default();
                 el.child(
-                    icon_button("btn_speak", icons::SPEAKER, p.muted, p.hover).on_mouse_down(
+                    icon_button("btn_speak", icons::SPEAKER, p.muted, p.hover, "朗读").on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
@@ -935,14 +979,26 @@ impl Render for TranslatePopup {
             })
             .when(show_pin, |el| {
                 el.child(
-                    icon_button("btn_pin", pin_svg, p.muted, p.hover).on_mouse_down(
+                    icon_button(
+                        "btn_pin",
+                        pin_svg,
+                        p.muted,
+                        p.hover,
+                        if self.pinned {
+                            "取消固定"
+                        } else {
+                            "固定窗口"
+                        },
+                    )
+                    .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(|this, _, _, cx| {
+                        cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
                             this.pinned = !this.pinned;
                             cx.global::<AppState>()
                                 .pinned
                                 .store(this.pinned, Ordering::Relaxed);
+                            crate::platform::apply_popup_pin(window, this.pinned);
                             (this.actions.on_pin)(this.pinned);
                             cx.notify();
                         }),
@@ -952,7 +1008,14 @@ impl Render for TranslatePopup {
             .when(show_copy, |el| {
                 let t = copy_text.clone().unwrap_or_default();
                 el.child(
-                    icon_button("btn_copy", copy_svg, copy_color, p.hover).on_mouse_down(
+                    icon_button(
+                        "btn_copy",
+                        copy_svg,
+                        copy_color,
+                        p.hover,
+                        if self.copied { "已复制" } else { "复制" },
+                    )
+                    .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| {
                             cx.stop_propagation();
@@ -975,7 +1038,7 @@ impl Render for TranslatePopup {
                 )
             })
             .child(
-                icon_button("btn_close", icons::CLOSE, p.muted, p.hover).on_mouse_down(
+                icon_button("btn_close", icons::CLOSE, p.muted, p.hover, "关闭").on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();
@@ -1009,13 +1072,7 @@ impl Render for TranslatePopup {
             .px(px(8.))
             .py(px(4.))
             .rounded(px(6.))
-            .bg(p.input_bg)
-            .border_1()
-            .border_color(if self.source_focused {
-                p.accent
-            } else {
-                p.border
-            })
+            .bg(p.pill_bg)
             .cursor_text()
             .on_mouse_down(
                 MouseButton::Left,
@@ -1126,13 +1183,14 @@ impl TranslatePopup {
     fn on_toggle_pin(
         &mut self,
         _: &crate::shared::actions::TogglePin,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.pinned = !self.pinned;
         cx.global::<AppState>()
             .pinned
             .store(self.pinned, Ordering::Relaxed);
+        crate::platform::apply_popup_pin(window, self.pinned);
         (self.actions.on_pin)(self.pinned);
         cx.notify();
     }
@@ -1223,7 +1281,11 @@ impl TranslatePopup {
             let overflow = natural_h > CHANNEL_BODY_MAX_H + 0.5;
 
             let body = if r.pending && r.text.is_empty() {
-                loading::loading_row("翻译中…", p)
+                loading::loading_row_with_id(
+                    "翻译中…",
+                    SharedString::from(format!("channel_shimmer_{i}")),
+                    p,
+                )
             } else if r.pending || r.ok {
                 selectable_markdown(
                     ("batch_body", i as u32),
@@ -1285,10 +1347,28 @@ impl TranslatePopup {
                     div()
                         .flex_1()
                         .min_w(px(0.))
-                        .text_size(px(11.5))
+                        .overflow_x_hidden()
+                        .text_size(px(12.))
+                        .line_height(px(CHANNEL_HEADER_H))
                         .font_weight(FontWeight::MEDIUM)
+                        .font_family(".SystemUIFont")
                         .text_color(name_color)
-                        .child(r.backend.clone()),
+                        .map(|el| {
+                            if r.pending {
+                                el.child(
+                                    ShimmerText::new(r.backend.clone())
+                                        .id(SharedString::from(format!("channel_name_{i}")))
+                                        .text_size(px(12.))
+                                        .line_height(px(CHANNEL_HEADER_H))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .font_family(".SystemUIFont")
+                                        .text_color(name_color)
+                                        .highlight_color(p.accent),
+                                )
+                            } else {
+                                el.child(r.backend.clone())
+                            }
+                        }),
                 )
                 .child(
                     // 右侧箭头：收起朝右，展开旋转 90° 朝下
@@ -1312,9 +1392,7 @@ impl TranslatePopup {
                     .px(px(CHANNEL_CARD_PAD))
                     .py(px(CHANNEL_CARD_PAD))
                     .rounded(px(10.))
-                    .border_1()
-                    .border_color(p.border)
-                    .bg(p.input_bg)
+                    .bg(p.pill_bg)
                     .child(
                         Collapsible::new()
                             .w_full()

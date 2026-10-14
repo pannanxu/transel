@@ -4,14 +4,33 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// 返回文件管理器当前选中的文件路径（仅文件，不含目录）。
+///
+/// 访达/资源管理器未前台时也会返回上次选中；划词翻译请用
+/// [`selected_file_paths_if_frontmost`]，避免网页划词误走 OCR。
 pub fn selected_file_paths() -> anyhow::Result<Vec<PathBuf>> {
     #[cfg(target_os = "macos")]
     {
-        selected_file_paths_macos()
+        selected_file_paths_macos(false)
     }
     #[cfg(target_os = "windows")]
     {
-        selected_file_paths_windows()
+        selected_file_paths_windows(false)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        selected_file_paths_linux()
+    }
+}
+
+/// 仅当前台是文件管理器时返回选中文件，否则空列表。
+pub fn selected_file_paths_if_frontmost() -> anyhow::Result<Vec<PathBuf>> {
+    #[cfg(target_os = "macos")]
+    {
+        selected_file_paths_macos(true)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        selected_file_paths_windows(true)
     }
     #[cfg(target_os = "linux")]
     {
@@ -103,8 +122,27 @@ pub fn is_text_path(p: &Path) -> bool {
     }
 }
 
+/// 用 NSWorkspace 判断访达是否前台，避免 AppleScript 调 System Events
+/// 触发「终端想要控制 System Events」授权框。
 #[cfg(target_os = "macos")]
-fn selected_file_paths_macos() -> anyhow::Result<Vec<PathBuf>> {
+fn finder_is_frontmost() -> bool {
+    use objc2_app_kit::NSWorkspace;
+
+    let app = NSWorkspace::sharedWorkspace().frontmostApplication();
+    let Some(app) = app else {
+        return false;
+    };
+    let Some(id) = app.bundleIdentifier() else {
+        return false;
+    };
+    id.to_string() == "com.apple.finder"
+}
+
+#[cfg(target_os = "macos")]
+fn selected_file_paths_macos(require_frontmost: bool) -> anyhow::Result<Vec<PathBuf>> {
+    if require_frontmost && !finder_is_frontmost() {
+        return Ok(Vec::new());
+    }
     let script = r#"
 tell application "Finder"
   set sel to selection as alias list
@@ -130,25 +168,46 @@ end tell
 }
 
 #[cfg(target_os = "windows")]
-fn selected_file_paths_windows() -> anyhow::Result<Vec<PathBuf>> {
-    // 尽力而为：读前台资源管理器窗口的选中项。失败则返回空（由剪贴板兜底）。
-    let script = r#"
+fn selected_file_paths_windows(require_frontmost: bool) -> anyhow::Result<Vec<PathBuf>> {
+    // 尽力而为：读资源管理器窗口的选中项。失败则返回空（由剪贴板兜底）。
+    let front_guard = if require_frontmost {
+        r#"
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class FgWin {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+}
+"@
+$hwnd = [FgWin]::GetForegroundWindow()
+$pid = [uint32]0
+[void][FgWin]::GetWindowThreadProcessId($hwnd, [ref]$pid)
+$proc = (Get-Process -Id $pid -ErrorAction SilentlyContinue).ProcessName
+if ($proc -ne 'explorer') { Write-Output ''; exit 0 }
+"#
+    } else {
+        ""
+    };
+    let script = format!(
+        r#"
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Windows.Forms
+{front_guard}
 $shell = New-Object -ComObject Shell.Application
 $paths = @()
-foreach ($w in $shell.Windows()) {
-  try {
-    if ($w.Document -eq $null) { continue }
+foreach ($w in $shell.Windows()) {{
+  try {{
+    if ($w.Document -eq $null) {{ continue }}
     $sel = $w.Document.SelectedItems()
-    if ($sel.Count -gt 0) {
-      foreach ($i in $sel) { $paths += $i.Path }
+    if ($sel.Count -gt 0) {{
+      foreach ($i in $sel) {{ $paths += $i.Path }}
       break
-    }
-  } catch {}
-}
+    }}
+  }} catch {{}}
+}}
 $paths -join "`n"
-"#;
+"#
+    );
     let out = Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .output()?;

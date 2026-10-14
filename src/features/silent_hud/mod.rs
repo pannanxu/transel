@@ -82,13 +82,31 @@ pub fn finish(cx: &mut App) {
     }
 }
 
-/// 用户停止：置取消、取消翻译批次、关闭 HUD。
-pub fn request_stop(cx: &mut App) {
+fn mark_cancelled(cx: &mut App) {
     if let Some(flag) = CANCEL.lock().as_ref() {
         flag.store(true, Ordering::SeqCst);
     }
     cx.global::<AppState>().translate.cancel_active();
-    finish(cx);
+}
+
+/// 用户停止：置取消、取消翻译批次、关闭 HUD。
+///
+/// 从 HUD 点击回调里不要同步 `handle.update` 关同一扇窗（会重入失败，
+/// 句柄被 take 走后窗口就再也关不掉）。
+pub fn request_stop(cx: &mut App) {
+    mark_cancelled(cx);
+    cx.defer(|cx| {
+        finish(cx);
+        log::info!("静默操作已停止");
+    });
+}
+
+/// 在 HUD 窗口事件里关闭：直接 `remove_window`，避免重入 `handle.update`。
+pub fn stop_from_window(window: &mut Window, cx: &mut App) {
+    mark_cancelled(cx);
+    *CANCEL.lock() = None;
+    let _ = cx.global_mut::<AppState>().silent_hud.lock().take();
+    window.remove_window();
     log::info!("静默操作已停止");
 }
 

@@ -39,6 +39,10 @@ pub fn run() {
             gpui_kit::init(cx);
             theme::sync_kit_theme(None, cx);
             cx.set_quit_mode(QuitMode::Explicit);
+            // Info.plist 不设 LSUIElement，以便 Spotlight / 启动台能搜到；
+            // 运行后再切 accessory，避免常驻 Dock。
+            #[cfg(target_os = "macos")]
+            cx.set_activation_policy(ActivationPolicy::Accessory);
 
             features::popup::init_keybindings(cx);
             features::settings::init_keybindings(cx);
