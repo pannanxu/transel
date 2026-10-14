@@ -3,8 +3,8 @@ name = "transel"
 version = "0.2.0"
 edition = "2024"
 description = "Transel — 跨平台划词翻译工具 (GPUI + gpui-kit)"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/your-org/transel"
+license = "MIT"
+repository = "https://github.com/pannanxu/transel"
 
 [lib]
 name = "transel"
