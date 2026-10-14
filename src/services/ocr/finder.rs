@@ -209,7 +209,7 @@ $paths -join "`n"
 "#
     );
     let out = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .output()?;
     if !out.status.success() {
         anyhow::bail!(
