@@ -94,8 +94,8 @@ mod macos_impl {
     use objc2::{MainThreadMarker, MainThreadOnly, msg_send};
     use objc2_app_kit::{
         NSAutoresizingMaskOptions, NSFloatingWindowLevel, NSView, NSVisualEffectBlendingMode,
-        NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
-        NSWindowButton, NSWindowOrderingMode, NSWindowStyleMask,
+        NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowButton,
+        NSWindowOrderingMode, NSWindowStyleMask,
     };
     use objc2_foundation::NSString;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};

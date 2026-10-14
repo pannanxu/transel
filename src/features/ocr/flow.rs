@@ -262,7 +262,10 @@ fn merge_continuous(prev: Option<&str>, next: &str) -> String {
 pub fn ensure_loading(cx: &mut App) {
     if let Some(view) = OCR_VIEW.lock().clone() {
         view.update(cx, |this, cx| {
-            let continuous = this.actions.continuous.load(std::sync::atomic::Ordering::Relaxed);
+            let continuous = this
+                .actions
+                .continuous
+                .load(std::sync::atomic::Ordering::Relaxed);
             if !continuous {
                 this.text.clear();
             }

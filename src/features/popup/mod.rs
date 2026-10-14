@@ -59,12 +59,7 @@ fn resolve_mode(cx: &App, mode: Mode, ctx: &Option<RequestCtx>) -> Mode {
     }
 }
 
-fn reuse_pinned(
-    cx: &mut App,
-    mode: Mode,
-    ctx: Option<RequestCtx>,
-    origin: HistoryOrigin,
-) -> bool {
+fn reuse_pinned(cx: &mut App, mode: Mode, ctx: Option<RequestCtx>, origin: HistoryOrigin) -> bool {
     let Some(view) = POPUP_VIEW.lock().clone() else {
         return false;
     };

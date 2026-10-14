@@ -185,7 +185,11 @@ impl Render for OcrView {
             loading::loading_row("正在识别…", &p)
         } else if self.text.is_empty() {
             EmptyState::new("识别结果会显示在这里")
-                .detail(status.clone().unwrap_or_else(|| "截图选区后开始识别".into()))
+                .detail(
+                    status
+                        .clone()
+                        .unwrap_or_else(|| "截图选区后开始识别".into()),
+                )
                 .into_any_element()
         } else {
             div()
@@ -197,13 +201,7 @@ impl Render for OcrView {
                 .when(self.loading, |el| {
                     el.child(loading::loading_row("正在识别…", &p))
                 })
-                .child(selectable_plain(
-                    "ocr_body",
-                    &self.text,
-                    p.text,
-                    14.,
-                    21.,
-                ))
+                .child(selectable_plain("ocr_body", &self.text, p.text, 14., 21.))
                 .into_any_element()
         };
 
@@ -214,7 +212,11 @@ impl Render for OcrView {
         };
         let copy_color = if self.copied { p.accent } else { p.muted };
         let cont_color = if continuous { p.accent } else { p.muted };
-        let action_color = if can_use { p.muted } else { p.muted.opacity(0.35) };
+        let action_color = if can_use {
+            p.muted
+        } else {
+            p.muted.opacity(0.35)
+        };
 
         let header = div()
             .id("ocr_header")
@@ -272,20 +274,20 @@ impl Render for OcrView {
                         "开启连续识别"
                     },
                 )
-                    .when(continuous, |el| el.bg(p.pill_bg))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, _, cx| {
-                            cx.stop_propagation();
-                            let on = !this.actions.continuous.load(Ordering::Relaxed);
-                            this.actions.continuous.store(on, Ordering::Relaxed);
-                            cx.global::<AppState>()
-                                .ocr_continuous
-                                .store(on, Ordering::Relaxed);
-                            (this.actions.on_toggle_continuous)(on);
-                            cx.notify();
-                        }),
-                    ),
+                .when(continuous, |el| el.bg(p.pill_bg))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        cx.stop_propagation();
+                        let on = !this.actions.continuous.load(Ordering::Relaxed);
+                        this.actions.continuous.store(on, Ordering::Relaxed);
+                        cx.global::<AppState>()
+                            .ocr_continuous
+                            .store(on, Ordering::Relaxed);
+                        (this.actions.on_toggle_continuous)(on);
+                        cx.notify();
+                    }),
+                ),
             )
             .child(
                 icon_button(

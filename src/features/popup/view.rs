@@ -968,13 +968,14 @@ impl Render for TranslatePopup {
             .when(show_speak, |el| {
                 let t = speak_text.clone().unwrap_or_default();
                 el.child(
-                    icon_button("btn_speak", icons::SPEAKER, p.muted, p.hover, "朗读").on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            (this.actions.on_speak)(t.clone());
-                        }),
-                    ),
+                    icon_button("btn_speak", icons::SPEAKER, p.muted, p.hover, "朗读")
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                (this.actions.on_speak)(t.clone());
+                            }),
+                        ),
                 )
             })
             .when(show_pin, |el| {
