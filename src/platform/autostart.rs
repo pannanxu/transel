@@ -133,7 +133,9 @@ pub fn set_auto_start(enabled: bool) -> anyhow::Result<()> {
 
 #[cfg(target_os = "linux")]
 pub fn is_auto_start_enabled() -> bool {
-    autostart_desktop_path().map(|p| p.exists()).unwrap_or(false)
+    autostart_desktop_path()
+        .map(|p| p.exists())
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "windows")]

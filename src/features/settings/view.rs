@@ -108,7 +108,7 @@ fn set_status(kind: StatusKind, msg: impl Into<String>, cx: &mut App) {
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(secs))
                 .await;
-            let _ = cx.update(|cx| {
+            cx.update(|cx| {
                 if cx.has_global::<SettingsDraft>() {
                     let draft = draft_mut(cx);
                     if draft.status.as_ref().map(|s| s.id) == Some(id) {
@@ -280,7 +280,14 @@ impl SettingsView {
                         .default_value(false),
                     )
                     .description("开机或登录系统时自动启动 Transel。")
-                    .keywords(["自启", "开机", "启动", "系统", "autostart", "startup"]),
+                    .keywords([
+                        "自启",
+                        "开机",
+                        "启动",
+                        "系统",
+                        "autostart",
+                        "startup",
+                    ]),
                 ]),
                 SettingGroup::new().title("历史").items(vec![
                     SettingItem::new(
@@ -622,12 +629,7 @@ fn floating_status_toast(
                 .child(
                     div()
                         .pl_2()
-                        .child(
-                            svg()
-                                .path(icons::CLOSE)
-                                .size(px(11.))
-                                .text_color(p.muted),
-                        ),
+                        .child(svg().path(icons::CLOSE).size(px(11.)).text_color(p.muted)),
                 ),
         )
         .into_any_element()
@@ -1369,7 +1371,6 @@ fn ocr_detail(
             actions,
             options,
             save_ocr_engine,
-            &p,
             window.appearance(),
             cx,
         ))
@@ -1412,7 +1413,6 @@ fn tts_detail(
             actions,
             &RenderOptions::new().with_size(Size::Small),
             save_tts_engine,
-            p,
             appearance,
             cx,
         ))
@@ -1425,10 +1425,10 @@ fn page_save_button(
     actions: SettingsActions,
     options: &RenderOptions,
     save: impl Fn(&Arc<dyn Fn(Config) + Send + Sync>, &mut App) + 'static,
-    p: &crate::shared::theme::Palette,
     appearance: gpui::WindowAppearance,
     cx: &App,
 ) -> AnyElement {
+    let p = palette(appearance);
     let status = if cx.has_global::<SettingsDraft>() {
         draft(cx).status.clone()
     } else {
@@ -1439,13 +1439,11 @@ fn page_save_button(
         .w_full()
         .items_center()
         .justify_between()
-        .child(
-            if let Some(ref st) = status {
-                status_badge(st, appearance, p)
-            } else {
-                div().into_any_element()
-            },
-        )
+        .child(if let Some(ref st) = status {
+            status_badge(st, appearance, &p)
+        } else {
+            div().into_any_element()
+        })
         .child(
             Button::new(id)
                 .primary()
@@ -1845,13 +1843,11 @@ fn backend_edit(
                 .w_full()
                 .items_center()
                 .justify_between()
-                .child(
-                    if let Some(ref st) = status {
-                        status_badge(st, window.appearance(), &p)
-                    } else {
-                        div().into_any_element()
-                    },
-                )
+                .child(if let Some(ref st) = status {
+                    status_badge(st, window.appearance(), &p)
+                } else {
+                    div().into_any_element()
+                })
                 .child(
                     h_flex()
                         .items_center()
@@ -1905,13 +1901,20 @@ fn backend_edit(
                                         let saved = cx.global::<AppState>().config().clone();
                                         if let Some(orig) =
                                             saved.backends.iter().find(|b| b.id == id).cloned()
-                                            && let Some(b) =
-                                                draft_mut(cx).cfg.backends.iter_mut().find(|b| b.id == id)
+                                            && let Some(b) = draft_mut(cx)
+                                                .cfg
+                                                .backends
+                                                .iter_mut()
+                                                .find(|b| b.id == id)
                                         {
                                             *b = orig;
                                         }
                                         draft_mut(cx).secret_inputs.remove(&id);
-                                        set_status(StatusKind::Info, "已撤销该服务的未保存更改", cx);
+                                        set_status(
+                                            StatusKind::Info,
+                                            "已撤销该服务的未保存更改",
+                                            cx,
+                                        );
                                         view.update(cx, |_, cx| cx.notify());
                                     }
                                 }),
@@ -2220,13 +2223,16 @@ fn save_hotkeys_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) 
         ("截图翻译", |c, v| c.ocr_hotkey = v),
         ("截图 OCR", |c, v| c.ocr_only_hotkey = v),
         ("静默截图 OCR", |c, v| c.ocr_silent_hotkey = v),
-        (if cfg!(target_os = "macos") {
-            "访达选图 OCR"
-        } else if cfg!(target_os = "windows") {
-            "资源管理器选图 OCR"
-        } else {
-            "选中文件 OCR"
-        }, |c, v| c.ocr_finder_hotkey = v),
+        (
+            if cfg!(target_os = "macos") {
+                "访达选图 OCR"
+            } else if cfg!(target_os = "windows") {
+                "资源管理器选图 OCR"
+            } else {
+                "选中文件 OCR"
+            },
+            |c, v| c.ocr_finder_hotkey = v,
+        ),
         ("静默划词替换", |c, v| c.silent_replace_hotkey = v),
         ("静默输入框替换", |c, v| c.silent_input_hotkey = v),
         ("原图翻译", |c, v| c.overlay_hotkey = v),
@@ -2403,7 +2409,6 @@ impl Render for SettingsView {
                                     NavPage::Hotkeys => save_hotkeys_form(on_save, cx),
                                     _ => {}
                                 },
-                                &p,
                                 window.appearance(),
                                 cx,
                             ))

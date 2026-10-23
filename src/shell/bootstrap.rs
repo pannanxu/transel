@@ -26,10 +26,10 @@ pub fn run() {
     if let Err(e) = cfg.save(&paths::config_file()) {
         log::warn!("保存配置失败: {e:#}");
     }
-    if cfg.auto_start {
-        if let Err(e) = platform::autostart::set_auto_start(true) {
-            log::warn!("同步开机自启动失败: {e:#}");
-        }
+    if cfg.auto_start
+        && let Err(e) = platform::autostart::set_auto_start(true)
+    {
+        log::warn!("同步开机自启动失败: {e:#}");
     }
     log::info!(
         "配置: target={} source={} backends={}",
