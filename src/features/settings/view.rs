@@ -49,11 +49,33 @@ enum ServiceTab {
     Tts,
 }
 
+/// 状态消息的级别。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StatusKind {
+    /// 保存成功等正面反馈
+    Success,
+    /// 操作提示、进行中
+    Info,
+    /// 格式错误、保存失败等
+    Error,
+}
+
+/// 带级别的状态消息。
+#[derive(Clone, Debug)]
+pub(crate) struct StatusMsg {
+    pub(crate) id: u64,
+    pub(crate) kind: StatusKind,
+    pub(crate) text: String,
+}
+
 /// 设置窗口打开期间的草稿（未保存）。
 pub struct SettingsDraft {
     pub cfg: Config,
     pub secret_inputs: BTreeMap<String, String>,
-    pub status: Option<String>,
+    pub(crate) status: Option<StatusMsg>,
+    /// 快捷键的原始编辑字符串；键为快捷键名（如 "划词翻译"），值为用户输入的原始文本。
+    /// 在输入过程中暂存，保存时才解析回 `HotkeySpec`。
+    pub hotkey_edits: BTreeMap<String, String>,
 }
 
 impl Global for SettingsDraft {}
@@ -64,6 +86,40 @@ fn draft(cx: &App) -> &SettingsDraft {
 
 fn draft_mut(cx: &mut App) -> &mut SettingsDraft {
     cx.global_mut::<SettingsDraft>()
+}
+
+fn set_status(kind: StatusKind, msg: impl Into<String>, cx: &mut App) {
+    static NEXT_STATUS_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let id = NEXT_STATUS_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    draft_mut(cx).status = Some(StatusMsg {
+        id,
+        kind,
+        text: msg.into(),
+    });
+
+    let auto_dismiss_secs = match kind {
+        StatusKind::Success => Some(3),
+        StatusKind::Info => Some(4),
+        StatusKind::Error => None,
+    };
+
+    if let Some(secs) = auto_dismiss_secs {
+        cx.spawn(async move |cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(secs))
+                .await;
+            let _ = cx.update(|cx| {
+                if cx.has_global::<SettingsDraft>() {
+                    let draft = draft_mut(cx);
+                    if draft.status.as_ref().map(|s| s.id) == Some(id) {
+                        draft.status = None;
+                        cx.refresh_windows();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
 }
 
 #[derive(Clone)]
@@ -111,6 +167,7 @@ impl SettingsView {
                 cfg,
                 secret_inputs: BTreeMap::new(),
                 status: None,
+                hotkey_edits: BTreeMap::new(),
             });
         }
         let appearance = cx.observe_window_appearance(window, |_, window, cx| {
@@ -174,8 +231,11 @@ impl SettingsView {
                             |cx| draft(cx).cfg.target_lang.clone().into(),
                             |val, cx| {
                                 draft_mut(cx).cfg.target_lang = val.to_string();
-                                draft_mut(cx).status =
-                                    Some(format!("目标语言：{val}（保存后生效）"));
+                                set_status(
+                                    StatusKind::Info,
+                                    format!("目标语言：{val}（保存后生效）"),
+                                    cx,
+                                );
                             },
                         ),
                     )
@@ -252,7 +312,7 @@ impl SettingsView {
                                     let view = view.clone();
                                     move |_, _, cx| {
                                         clear();
-                                        draft_mut(cx).status = Some("历史已清空".into());
+                                        set_status(StatusKind::Success, "历史已清空", cx);
                                         view.update(cx, |_, cx| cx.notify());
                                     }
                                 })
@@ -309,7 +369,7 @@ impl SettingsView {
 
     fn page_hotkeys(&self, view: Entity<Self>) -> SettingPage {
         type HotkeyGetter = fn(&Config) -> &HotkeySpec;
-        let items: Vec<(&str, HotkeyGetter)> = vec![
+        let items: Vec<(&'static str, HotkeyGetter)> = vec![
             ("划词翻译", |c| &c.translate_hotkey),
             ("截图翻译", |c| &c.ocr_hotkey),
             ("截图 OCR", |c| &c.ocr_only_hotkey),
@@ -338,16 +398,29 @@ impl SettingsView {
         let hotkey_items: Vec<SettingItem> = items
             .into_iter()
             .map(|(label, getter)| {
+                let label_key: String = label.into();
+                let label_key2 = label_key.clone();
                 SettingItem::new(
                     label,
                     SettingField::input(
-                        move |cx| SharedString::from(getter(&draft(cx).cfg).to_string()),
-                        |_, cx| {
-                            draft_mut(cx).status = Some("快捷键重绑定将在后续版本中提供".into());
+                        move |cx| {
+                            // 优先返回正在编辑的原始字符串，否则从配置读取
+                            let d = draft(cx);
+                            if let Some(raw) = d.hotkey_edits.get(&label_key) {
+                                SharedString::from(raw.clone())
+                            } else {
+                                SharedString::from(getter(&d.cfg).to_string())
+                            }
+                        },
+                        move |val, cx| {
+                            // 将用户输入的原始字符串暂存，不立即解析
+                            draft_mut(cx)
+                                .hotkey_edits
+                                .insert(label_key2.clone(), val.to_string());
                         },
                     ),
                 )
-                .description("当前为只读展示；重绑定将在后续版本提供。")
+                .description("格式：修饰键+按键，如 Alt+D、Cmd+Shift+P。留空表示不绑定。")
             })
             .collect();
 
@@ -359,7 +432,7 @@ impl SettingsView {
                 SettingGroup::new()
                     .title("全局热键")
                     .items(hotkey_items)
-                    .footer(|_, _| "修改热键后需保存；重绑定 UI 尚未开放。"),
+                    .footer(|_, _| "修改热键后需点击保存生效。"),
             )
     }
 
@@ -416,6 +489,150 @@ impl SettingsView {
     }
 }
 
+fn status_colors(
+    kind: StatusKind,
+    appearance: gpui::WindowAppearance,
+    p: &crate::shared::theme::Palette,
+) -> (Hsla, Hsla, Hsla, &'static str) {
+    let dark = matches!(appearance, gpui::WindowAppearance::Dark);
+    match kind {
+        StatusKind::Success => {
+            let text = if dark {
+                hsla(142. / 360., 0.75, 0.55, 1.)
+            } else {
+                hsla(142. / 360., 0.85, 0.30, 1.)
+            };
+            let bg = if dark {
+                hsla(142. / 360., 0.70, 0.35, 0.18)
+            } else {
+                hsla(142. / 360., 0.70, 0.40, 0.12)
+            };
+            let border = if dark {
+                hsla(142. / 360., 0.70, 0.50, 0.35)
+            } else {
+                hsla(142. / 360., 0.75, 0.35, 0.30)
+            };
+            (text, bg, border, icons::CHECK)
+        }
+        StatusKind::Error => {
+            let text = p.danger;
+            let bg = Hsla {
+                a: if dark { 0.20 } else { 0.12 },
+                ..p.danger
+            };
+            let border = Hsla {
+                a: if dark { 0.45 } else { 0.35 },
+                ..p.danger
+            };
+            (text, bg, border, icons::CLOSE)
+        }
+        StatusKind::Info => {
+            let text = p.accent;
+            let bg = Hsla {
+                a: if dark { 0.18 } else { 0.10 },
+                ..p.accent
+            };
+            let border = Hsla {
+                a: if dark { 0.40 } else { 0.28 },
+                ..p.accent
+            };
+            (text, bg, border, icons::SPARKLES)
+        }
+    }
+}
+
+/// 底部操作栏（如“保存”按钮旁边）的状态指示徽标。
+fn status_badge(
+    st: &StatusMsg,
+    appearance: gpui::WindowAppearance,
+    p: &crate::shared::theme::Palette,
+) -> AnyElement {
+    let (text_color, bg_color, border_color, icon_path) = status_colors(st.kind, appearance, p);
+    h_flex()
+        .items_center()
+        .gap_2()
+        .px_3()
+        .py(px(5.))
+        .rounded(px(8.))
+        .bg(bg_color)
+        .border_1()
+        .border_color(border_color)
+        .child(svg().path(icon_path).size(px(14.)).text_color(text_color))
+        .child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(text_color)
+                .child(st.text.clone()),
+        )
+        .into_any_element()
+}
+
+/// 窗口顶部居中浮动的全局 Toast 提示卡片。
+fn floating_status_toast(
+    st: &StatusMsg,
+    appearance: gpui::WindowAppearance,
+    p: &crate::shared::theme::Palette,
+    view: Entity<SettingsView>,
+) -> AnyElement {
+    let (text_color, bg_color, border_color, icon_path) = status_colors(st.kind, appearance, p);
+    let card_bg = opaque_elevated(appearance);
+
+    div()
+        .id("settings_floating_toast")
+        .absolute()
+        .top(px(12.))
+        .left_0()
+        .right_0()
+        .flex()
+        .justify_center()
+        .child(
+            h_flex()
+                .items_center()
+                .gap_2()
+                .px_4()
+                .py(px(8.))
+                .rounded(px(12.))
+                .bg(card_bg)
+                .border_1()
+                .border_color(border_color)
+                .shadow_lg()
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    if cx.has_global::<SettingsDraft>() {
+                        draft_mut(cx).status = None;
+                    }
+                    view.update(cx, |_, cx| cx.notify());
+                })
+                .child(
+                    div()
+                        .p(px(3.))
+                        .rounded(px(6.))
+                        .bg(bg_color)
+                        .child(svg().path(icon_path).size(px(14.)).text_color(text_color)),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(p.text)
+                        .child(st.text.clone()),
+                )
+                .child(
+                    div()
+                        .pl_2()
+                        .child(
+                            svg()
+                                .path(icons::CLOSE)
+                                .size(px(11.))
+                                .text_color(p.muted),
+                        ),
+                ),
+        )
+        .into_any_element()
+}
+
 fn ort_download_row(options: &RenderOptions, view: Entity<SettingsView>, cx: &App) -> AnyElement {
     let label = ocr::ort_status_label();
     let st = ocr::ort_status();
@@ -444,7 +661,7 @@ fn ort_download_row(options: &RenderOptions, view: Entity<SettingsView>, cx: &Ap
                         if !can_download {
                             return;
                         }
-                        draft_mut(cx).status = Some("正在下载 ONNX Runtime…".into());
+                        set_status(StatusKind::Info, "正在下载 ONNX Runtime…", cx);
                         view.update(cx, |_, cx| cx.notify());
                         let view2 = view.clone();
                         cx.spawn(async move |cx| {
@@ -462,11 +679,18 @@ fn ort_download_row(options: &RenderOptions, view: Entity<SettingsView>, cx: &Ap
                                             .name("ocr-warmup".into())
                                             .spawn(move || ocr::set_engine_from_config(&backend))
                                             .ok();
-                                        draft_mut(cx).status =
-                                            Some(format!("ONNX Runtime 已就绪\n{path}"));
+                                        set_status(
+                                            StatusKind::Success,
+                                            format!("ONNX Runtime 已就绪\n{path}"),
+                                            cx,
+                                        );
                                     }
                                     Err(e) => {
-                                        draft_mut(cx).status = Some(format!("下载失败: {e:#}"));
+                                        set_status(
+                                            StatusKind::Error,
+                                            format!("下载失败: {e:#}"),
+                                            cx,
+                                        );
                                     }
                                 }
                                 cx.notify();
@@ -588,7 +812,6 @@ fn services_workspace(
 ) -> AnyElement {
     let p = palette(window.appearance());
     let fill = opaque_chip(window.appearance());
-    let status = draft(cx).status.clone().unwrap_or_default();
     v_flex()
         .w_full()
         .h_full()
@@ -611,10 +834,7 @@ fn services_workspace(
                             .text_xs()
                             .text_color(p.muted)
                             .child("翻译功能的核心服务支持配置，下方开启的服务将被使用。"),
-                    )
-                    .when(!status.is_empty(), |el| {
-                        el.child(div().text_xs().text_color(p.muted).child(status))
-                    }),
+                    ),
             ),
         )
         .child(service_tabs(view.clone(), tab, &p))
@@ -643,7 +863,7 @@ fn services_workspace(
                         }
                     }
                     ServiceTab::Ocr => ocr_detail(view, actions, options, window, cx),
-                    ServiceTab::Tts => tts_detail(view, actions, &p, fill),
+                    ServiceTab::Tts => tts_detail(view, actions, &p, fill, window.appearance(), cx),
                 })),
         )
         .into_any_element()
@@ -1149,6 +1369,9 @@ fn ocr_detail(
             actions,
             options,
             save_ocr_engine,
+            &p,
+            window.appearance(),
+            cx,
         ))
         .into_any_element()
 }
@@ -1158,6 +1381,8 @@ fn tts_detail(
     actions: SettingsActions,
     p: &crate::shared::theme::Palette,
     fill: Hsla,
+    appearance: gpui::WindowAppearance,
+    cx: &App,
 ) -> AnyElement {
     v_flex()
         .w_full()
@@ -1187,6 +1412,9 @@ fn tts_detail(
             actions,
             &RenderOptions::new().with_size(Size::Small),
             save_tts_engine,
+            p,
+            appearance,
+            cx,
         ))
         .into_any_element()
 }
@@ -1197,10 +1425,27 @@ fn page_save_button(
     actions: SettingsActions,
     options: &RenderOptions,
     save: impl Fn(&Arc<dyn Fn(Config) + Send + Sync>, &mut App) + 'static,
+    p: &crate::shared::theme::Palette,
+    appearance: gpui::WindowAppearance,
+    cx: &App,
 ) -> AnyElement {
+    let status = if cx.has_global::<SettingsDraft>() {
+        draft(cx).status.clone()
+    } else {
+        None
+    };
+
     h_flex()
         .w_full()
-        .justify_end()
+        .items_center()
+        .justify_between()
+        .child(
+            if let Some(ref st) = status {
+                status_badge(st, appearance, p)
+            } else {
+                div().into_any_element()
+            },
+        )
         .child(
             Button::new(id)
                 .primary()
@@ -1457,7 +1702,11 @@ fn finish_add(mut entry: BackendEntry, view: &Entity<SettingsView>, cx: &mut App
     entry.display_name = name.clone();
     let id = entry.id.clone();
     draft_mut(cx).cfg.backends.push(entry);
-    draft_mut(cx).status = Some(format!("已添加 {name}，请填写配置后保存"));
+    set_status(
+        StatusKind::Info,
+        format!("已添加 {name}，请填写配置后保存"),
+        cx,
+    );
     view.update(cx, |this, cx| {
         this.selected_id = Some(id);
         this.picker_open = false;
@@ -1586,79 +1835,104 @@ fn backend_edit(
             ))
         })
         .child(div().flex_1())
-        .child(
+        .child({
+            let status = if cx.has_global::<SettingsDraft>() {
+                draft(cx).status.clone()
+            } else {
+                None
+            };
             h_flex()
                 .w_full()
-                .justify_end()
-                .gap_2()
+                .items_center()
+                .justify_between()
                 .child(
-                    Button::new("be_verify")
-                        .ghost()
-                        .label("验证")
-                        .with_size(options.size())
-                        .on_click({
-                            let view = view.clone();
-                            let id = id.clone();
-                            move |_, _, cx| {
-                                persist_secret_for(&id, cx);
-                                draft_mut(cx).status = Some("正在验证…".into());
-                                view.update(cx, |_, cx| cx.notify());
-                                let cfg = draft(cx).cfg.clone();
-                                let id = id.clone();
-                                let view2 = view.clone();
-                                cx.spawn(async move |cx| {
-                                    let msg = cx
-                                        .background_executor()
-                                        .spawn(async move { probe_backend(&cfg, &id) })
-                                        .await;
-                                    view2.update(cx, |_, cx| {
-                                        draft_mut(cx).status = Some(msg);
-                                        cx.notify();
-                                    });
-                                })
-                                .detach();
-                            }
-                        }),
+                    if let Some(ref st) = status {
+                        status_badge(st, window.appearance(), &p)
+                    } else {
+                        div().into_any_element()
+                    },
                 )
                 .child(
-                    Button::new("be_revert")
-                        .ghost()
-                        .label("撤销")
-                        .with_size(options.size())
-                        .on_click({
-                            let view = view.clone();
-                            let id = id.clone();
-                            move |_, _, cx| {
-                                let saved = cx.global::<AppState>().config().clone();
-                                if let Some(orig) =
-                                    saved.backends.iter().find(|b| b.id == id).cloned()
-                                    && let Some(b) =
-                                        draft_mut(cx).cfg.backends.iter_mut().find(|b| b.id == id)
-                                {
-                                    *b = orig;
-                                }
-                                draft_mut(cx).secret_inputs.remove(&id);
-                                draft_mut(cx).status = Some("已撤销该服务的未保存更改".into());
-                                view.update(cx, |_, cx| cx.notify());
-                            }
-                        }),
+                    h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Button::new("be_verify")
+                                .ghost()
+                                .label("验证")
+                                .with_size(options.size())
+                                .on_click({
+                                    let view = view.clone();
+                                    let id = id.clone();
+                                    move |_, _, cx| {
+                                        persist_secret_for(&id, cx);
+                                        set_status(StatusKind::Info, "正在验证…", cx);
+                                        view.update(cx, |_, cx| cx.notify());
+                                        let cfg = draft(cx).cfg.clone();
+                                        let id = id.clone();
+                                        let view2 = view.clone();
+                                        cx.spawn(async move |cx| {
+                                            let msg = cx
+                                                .background_executor()
+                                                .spawn(async move { probe_backend(&cfg, &id) })
+                                                .await;
+                                            view2.update(cx, |_, cx| {
+                                                set_status(
+                                                    if msg.contains("成功") {
+                                                        StatusKind::Success
+                                                    } else {
+                                                        StatusKind::Error
+                                                    },
+                                                    msg,
+                                                    cx,
+                                                );
+                                                cx.notify();
+                                            });
+                                        })
+                                        .detach();
+                                    }
+                                }),
+                        )
+                        .child(
+                            Button::new("be_revert")
+                                .ghost()
+                                .label("撤销")
+                                .with_size(options.size())
+                                .on_click({
+                                    let view = view.clone();
+                                    let id = id.clone();
+                                    move |_, _, cx| {
+                                        let saved = cx.global::<AppState>().config().clone();
+                                        if let Some(orig) =
+                                            saved.backends.iter().find(|b| b.id == id).cloned()
+                                            && let Some(b) =
+                                                draft_mut(cx).cfg.backends.iter_mut().find(|b| b.id == id)
+                                        {
+                                            *b = orig;
+                                        }
+                                        draft_mut(cx).secret_inputs.remove(&id);
+                                        set_status(StatusKind::Info, "已撤销该服务的未保存更改", cx);
+                                        view.update(cx, |_, cx| cx.notify());
+                                    }
+                                }),
+                        )
+                        .child(
+                            Button::new("be_save")
+                                .primary()
+                                .label("保存")
+                                .with_size(options.size())
+                                .on_click({
+                                    let view = view.clone();
+                                    let on_save = actions.on_save.clone();
+                                    let id = id.clone();
+                                    move |_, _, cx| {
+                                        save_one_backend(&id, &on_save, cx);
+                                        view.update(cx, |_, cx| cx.notify());
+                                    }
+                                }),
+                        ),
                 )
-                .child(
-                    Button::new("be_save")
-                        .primary()
-                        .label("保存")
-                        .with_size(options.size())
-                        .on_click({
-                            let view = view.clone();
-                            let on_save = actions.on_save.clone();
-                            let id = id.clone();
-                            move |_, _, cx| {
-                                save_one_backend(&id, &on_save, cx);
-                                view.update(cx, |_, cx| cx.notify());
-                            }
-                        }),
-                ),
-        )
+        })
         .into_any_element()
 }
 
@@ -1858,7 +2132,7 @@ fn commit_secret(
     };
     let store = crate::app::secrets::KeyringStore;
     if let Err(e) = crate::app::secrets::SecretStore::set(&store, &account, &key) {
-        draft_mut(cx).status = Some(format!("钥匙串写入失败: {e}"));
+        set_status(StatusKind::Error, format!("钥匙串写入失败: {e}"), cx);
         return;
     }
     let label = if let Some(b) = draft_mut(cx).cfg.backends.iter_mut().find(|b| b.id == id) {
@@ -1872,7 +2146,11 @@ fn commit_secret(
     } else {
         return;
     };
-    draft_mut(cx).status = Some(format!("{label} 密钥已写入，请点保存"));
+    set_status(
+        StatusKind::Info,
+        format!("{label} 密钥已写入，请点保存"),
+        cx,
+    );
     on_secret(id.to_string());
 }
 
@@ -1893,7 +2171,7 @@ fn write_live(
     cx: &mut App,
 ) {
     if let Err(e) = next.save(&paths::config_file()) {
-        draft_mut(cx).status = Some(format!("保存失败: {e}"));
+        set_status(StatusKind::Error, format!("保存失败: {e}"), cx);
         return;
     }
     if let Err(e) = crate::platform::autostart::set_auto_start(next.auto_start) {
@@ -1908,7 +2186,7 @@ fn write_live(
     }
     cx.global::<AppState>().reload_config(next.clone());
     on_save(next);
-    draft_mut(cx).status = Some(msg.into());
+    set_status(StatusKind::Success, msg, cx);
 }
 
 fn save_translate_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
@@ -1934,6 +2212,52 @@ fn save_ocr_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
 }
 
 fn save_hotkeys_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
+    // 先把 hotkey_edits 中的原始字符串解析到 draft.cfg
+    let edits = draft(cx).hotkey_edits.clone();
+    type HotkeySetter = fn(&mut Config, HotkeySpec);
+    let setters: Vec<(&str, HotkeySetter)> = vec![
+        ("划词翻译", |c, v| c.translate_hotkey = v),
+        ("截图翻译", |c, v| c.ocr_hotkey = v),
+        ("截图 OCR", |c, v| c.ocr_only_hotkey = v),
+        ("静默截图 OCR", |c, v| c.ocr_silent_hotkey = v),
+        (if cfg!(target_os = "macos") {
+            "访达选图 OCR"
+        } else if cfg!(target_os = "windows") {
+            "资源管理器选图 OCR"
+        } else {
+            "选中文件 OCR"
+        }, |c, v| c.ocr_finder_hotkey = v),
+        ("静默划词替换", |c, v| c.silent_replace_hotkey = v),
+        ("静默输入框替换", |c, v| c.silent_input_hotkey = v),
+        ("原图翻译", |c, v| c.overlay_hotkey = v),
+        ("收藏夹", |c, v| c.favorites_hotkey = v),
+        ("输入翻译窗口", |c, v| c.input_hotkey = v),
+        ("朗读选中文本", |c, v| c.speak_hotkey = v),
+        ("切换弹窗固定", |c, v| c.pin_hotkey = v),
+        ("显示历史", |c, v| c.history_hotkey = v),
+        ("显示设置", |c, v| c.settings_hotkey = v),
+    ];
+    let mut errors = Vec::new();
+    for (label, setter) in &setters {
+        if let Some(raw) = edits.get(*label) {
+            if let Some(spec) = HotkeySpec::from_display_string(raw) {
+                setter(&mut draft_mut(cx).cfg, spec);
+            } else if !raw.trim().is_empty() {
+                errors.push(format!("{label}: \"{raw}\""));
+            }
+        }
+    }
+    if !errors.is_empty() {
+        set_status(
+            StatusKind::Error,
+            format!("格式错误，未保存：{}", errors.join("、")),
+            cx,
+        );
+        return;
+    }
+    // 保存成功后清空编辑缓存
+    draft_mut(cx).hotkey_edits.clear();
+
     let d = draft(cx).cfg.clone();
     let mut c = live_config(cx);
     c.translate_hotkey = d.translate_hotkey;
@@ -1985,7 +2309,7 @@ fn save_backend_enabled(
 fn save_one_backend(id: &str, on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
     persist_secret_for(id, cx);
     let Some(entry) = draft(cx).cfg.backends.iter().find(|b| b.id == id).cloned() else {
-        draft_mut(cx).status = Some("未找到该服务".into());
+        set_status(StatusKind::Error, "未找到该服务", cx);
         return;
     };
     let label = if entry.display_name.is_empty() {
@@ -2026,10 +2350,10 @@ impl Render for SettingsView {
         let view = cx.entity();
         let nav = self.nav;
         let actions = self.actions.clone();
-        let status = if cx.has_global::<SettingsDraft>() {
-            draft(cx).status.clone().unwrap_or_default()
+        let status: Option<StatusMsg> = if cx.has_global::<SettingsDraft>() {
+            draft(cx).status.clone()
         } else {
-            String::new()
+            None
         };
 
         let options = RenderOptions::new().with_size(Size::Small);
@@ -2059,9 +2383,6 @@ impl Render for SettingsView {
                 v_flex()
                     .size_full()
                     .gap_2()
-                    .when(!status.is_empty(), |el| {
-                        el.child(div().text_xs().text_color(p.muted).child(status.clone()))
-                    })
                     .child(div().flex_1().min_h(px(0.)).min_w(px(0.)).child(form))
                     .when(
                         matches!(nav, NavPage::Translate | NavPage::Ocr | NavPage::Hotkeys),
@@ -2082,6 +2403,9 @@ impl Render for SettingsView {
                                     NavPage::Hotkeys => save_hotkeys_form(on_save, cx),
                                     _ => {}
                                 },
+                                &p,
+                                window.appearance(),
+                                cx,
                             ))
                         },
                     )
@@ -2123,6 +2447,14 @@ impl Render for SettingsView {
                             ),
                     ),
             )
+            .when_some(status, |el, st| {
+                el.child(floating_status_toast(
+                    &st,
+                    window.appearance(),
+                    &p,
+                    view.clone(),
+                ))
+            })
             .when(picker_open, |el| {
                 el.child(add_service_dialog(view, window, cx))
             })

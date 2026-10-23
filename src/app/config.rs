@@ -263,6 +263,43 @@ impl std::fmt::Display for HotkeySpec {
     }
 }
 
+impl HotkeySpec {
+    /// 从形如 `"Alt+D"` / `"Cmd+Shift+P"` 的显示字符串解析回 `HotkeySpec`。
+    ///
+    /// 空字符串 / 纯空白返回一个空 spec（key 为空 → 表示不绑定）。
+    pub fn from_display_string(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Some(Self {
+                modifiers: vec![],
+                key: String::new(),
+            });
+        }
+        let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
+        if parts.is_empty() {
+            return None;
+        }
+        let mut modifiers = Vec::new();
+        for part in &parts[..parts.len() - 1] {
+            let lower = part.to_ascii_lowercase();
+            match lower.as_str() {
+                "alt" => modifiers.push("alt".to_string()),
+                "ctrl" | "control" => modifiers.push("ctrl".to_string()),
+                "shift" => modifiers.push("shift".to_string()),
+                "cmd" | "meta" | "super" | "win" | "command" | "⌘" => {
+                    modifiers.push("cmd".to_string())
+                }
+                _ => return None, // 无法识别的修饰键
+            }
+        }
+        let key = parts.last()?.trim().to_uppercase();
+        if key.is_empty() {
+            return None;
+        }
+        Some(Self { modifiers, key })
+    }
+}
+
 fn pretty_mod(m: &str) -> String {
     match m.to_ascii_lowercase().as_str() {
         "ctrl" | "control" => "Ctrl".into(),
