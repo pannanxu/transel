@@ -60,7 +60,7 @@ public class TranselSnip : Form {{
     StartPosition = FormStartPosition.Manual;
     Bounds = SystemInformation.VirtualScreen;
     TopMost = true;
-    Opacity = 0.18;
+    Opacity = 0.32;
     BackColor = Color.Black;
     Cursor = Cursors.Cross;
     DoubleBuffered = true;
@@ -94,7 +94,22 @@ public class TranselSnip : Form {{
   protected override void OnPaint(PaintEventArgs e) {{
     if (rect.Width <= 0) return;
     var local = RectangleToClient(rect);
-    using (var p = new Pen(Color.White, 1)) e.Graphics.DrawRectangle(p, local);
+    using (var pBlue = new Pen(Color.FromArgb(0, 122, 255), 2)) e.Graphics.DrawRectangle(pBlue, local);
+    using (var pWhite = new Pen(Color.FromArgb(80, 255, 255, 255), 1)) {{
+      var inner = new Rectangle(local.X + 1, local.Y + 1, Math.Max(0, local.Width - 2), Math.Max(0, local.Height - 2));
+      e.Graphics.DrawRectangle(pWhite, inner);
+    }}
+    string badge = $"{rect.Width} x {rect.Height}";
+    using (var font = new Font("Segoe UI", 9, FontStyle.Bold))
+    using (var bgBrush = new SolidBrush(Color.FromArgb(220, 20, 20, 20)))
+    using (var textBrush = new SolidBrush(Color.White)) {{
+      var sz = e.Graphics.MeasureString(badge, font);
+      float bx = Math.Max(10, local.X);
+      float by = local.Y - sz.Height - 6;
+      if (by < 10) by = local.Y + 6;
+      e.Graphics.FillRectangle(bgBrush, bx, by, sz.Width + 12, sz.Height + 4);
+      e.Graphics.DrawString(badge, font, textBrush, bx + 6, by + 2);
+    }}
   }}
 }}
 "@
