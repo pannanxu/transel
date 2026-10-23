@@ -5,5 +5,6 @@ pub mod history;
 pub mod ocr;
 pub mod overlay;
 pub mod popup;
+pub mod screenshot;
 pub mod settings;
 pub mod silent_hud;

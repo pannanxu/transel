@@ -7,6 +7,7 @@ use crate::app::state::TrayEvent;
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
+const SCREENSHOT_ID: &str = "screenshot";
 const INPUT_ID: &str = "input";
 const OCR_ID: &str = "ocr";
 const OCR_ONLY_ID: &str = "ocr_only";
@@ -69,6 +70,7 @@ fn resize_nearest(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
 
 fn build(queue: std::sync::mpsc::Sender<TrayEvent>) -> anyhow::Result<TrayIcon> {
     let menu = Menu::new();
+    let screenshot = MenuItem::with_id(MenuId::new(SCREENSHOT_ID), "截图 (F1)", true, None);
     let input = MenuItem::with_id(MenuId::new(INPUT_ID), "输入翻译…", true, None);
     let ocr = MenuItem::with_id(MenuId::new(OCR_ID), "截图翻译", true, None);
     let ocr_only = MenuItem::with_id(MenuId::new(OCR_ONLY_ID), "截图 OCR", true, None);
@@ -94,6 +96,7 @@ fn build(queue: std::sync::mpsc::Sender<TrayEvent>) -> anyhow::Result<TrayIcon> 
     let favorites = MenuItem::with_id(MenuId::new(FAVORITES_ID), "收藏夹", true, None);
     let settings = MenuItem::with_id(MenuId::new(SETTINGS_ID), "设置…", true, None);
     let quit = MenuItem::with_id(MenuId::new(QUIT_ID), "退出", true, None);
+    menu.append(&screenshot)?;
     menu.append(&input)?;
     menu.append(&ocr)?;
     menu.append(&ocr_only)?;
@@ -110,6 +113,7 @@ fn build(queue: std::sync::mpsc::Sender<TrayEvent>) -> anyhow::Result<TrayIcon> 
     std::thread::spawn(move || {
         while let Ok(ev) = MenuEvent::receiver().recv() {
             let mapped = match ev.id.as_ref() {
+                SCREENSHOT_ID => Some(TrayEvent::Screenshot),
                 INPUT_ID => Some(TrayEvent::OpenInput),
                 OCR_ID => Some(TrayEvent::Ocr),
                 OCR_ONLY_ID => Some(TrayEvent::OcrOnly),

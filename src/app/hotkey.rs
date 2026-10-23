@@ -180,8 +180,9 @@ impl HotkeySet {
 
     /// 按配置重绑定全部已知热键。
     pub fn rebind_from_config(&mut self, cfg: &super::config::Config) {
-        let pairs: [(&str, &HotkeySpec); 14] = [
+        let pairs: [(&str, &HotkeySpec); 15] = [
             ("translate", &cfg.translate_hotkey),
+            ("screenshot", &cfg.screenshot_hotkey),
             ("ocr", &cfg.ocr_hotkey),
             ("ocr_only", &cfg.ocr_only_hotkey),
             ("ocr_silent", &cfg.ocr_silent_hotkey),

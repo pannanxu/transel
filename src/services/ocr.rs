@@ -54,7 +54,11 @@ pub fn set_engine(engine: SharedOcrEngine) {
 
 /// 按配置切换引擎。
 pub fn set_engine_from_config(ocr_backend: &str, ocr_model: &str, ocr_threads: usize) {
-    set_engine(registry::resolve_with_options(ocr_backend, ocr_model, ocr_threads));
+    set_engine(registry::resolve_with_options(
+        ocr_backend,
+        ocr_model,
+        ocr_threads,
+    ));
 }
 
 fn current_engine() -> SharedOcrEngine {
@@ -82,6 +86,16 @@ pub fn capture_and_recognize(language_hint: Option<&str>) -> Result<OcrResult> {
 /// 交互式框选截图（不识别）。
 pub fn capture_interactive() -> Result<PathBuf> {
     platform::capture_interactive()
+}
+
+/// 交互式带标注工具栏截图（回车/复制后写入剪贴板）。
+pub fn capture_interactive_annotated() -> Result<PathBuf> {
+    platform::capture_interactive_annotated()
+}
+
+/// 预热平台截图助手（后台静默编译/校验缓存）。
+pub fn prewarm_snip_helper() {
+    platform::prewarm_snip_helper();
 }
 
 /// 对已有截图路径做 OCR（含二维码探测；不做智能分段，由调用方按配置决定）。

@@ -11,6 +11,7 @@ use gpui_kit::*;
 pub const COPY: &str = "icons/copy.svg";
 pub const CHECK: &str = "icons/check.svg";
 pub const CLOSE: &str = "icons/close.svg";
+pub const X: &str = "icons/x.svg";
 pub const PIN: &str = "icons/pin.svg";
 pub const PIN_OFF: &str = "icons/pin-off.svg";
 pub const SPEAKER: &str = "icons/volume-2.svg";
@@ -20,7 +21,8 @@ pub const HISTORY: &str = "icons/refresh-cw.svg";
 pub const INPUT: &str = "icons/square-terminal.svg";
 pub const OCR: &str = "icons/camera.svg";
 pub const PLUS: &str = "icons/plus.svg";
-pub const TRASH: &str = "icons/delete.svg";
+pub const MINUS: &str = "icons/minus.svg";
+pub const TRASH: &str = "icons/trash.svg";
 pub const CHEVRON_DOWN: &str = "icons/chevron-down.svg";
 pub const CHEVRON_RIGHT: &str = "icons/chevron-right.svg";
 pub const BOT: &str = "icons/bot.svg";
@@ -31,6 +33,16 @@ pub const MESSAGE: &str = "icons/message-square.svg";
 pub const CPU: &str = "icons/cpu.svg";
 pub const LOADER_CIRCLE: &str = "icons/loader-circle.svg";
 pub const REPEAT: &str = "icons/repeat.svg";
+pub const MOUSE_POINTER: &str = "icons/mouse-pointer.svg";
+pub const HAND: &str = "icons/hand.svg";
+pub const DOWNLOAD: &str = "icons/download.svg";
+pub const SQUARE: &str = "icons/square.svg";
+pub const CIRCLE: &str = "icons/circle.svg";
+pub const ARROW_UP_RIGHT: &str = "icons/arrow-up-right.svg";
+pub const PEN_LINE: &str = "icons/pen-line.svg";
+pub const GRID_2X2: &str = "icons/grid-2x2.svg";
+pub const TYPE: &str = "icons/type.svg";
+pub const UNDO_2: &str = "icons/undo-2.svg";
 pub const LOGO: &str = "images/icon.png";
 
 const LOGO_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/packaging/icon.png"));
@@ -52,6 +64,19 @@ gpui_kit::assets::icon_assets!(
         Cpu,
         LoaderCircle,
         Repeat,
+        MousePointer,
+        Hand,
+        Download,
+        Copy,
+        Square,
+        Circle,
+        ArrowUpRight,
+        PenLine,
+        Grid2x2,
+        Type,
+        Undo2,
+        Trash,
+        X,
     ]
 );
 

@@ -4,7 +4,7 @@
 //! 环境变量仍可生效，作为首次启动的种子。
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +57,12 @@ pub struct Config {
     /// 原图翻译热键：默认 Alt+Shift+O
     #[serde(default = "default_overlay_hotkey")]
     pub overlay_hotkey: HotkeySpec,
+    /// 独立截图标注（回车复制到剪贴板）：默认 F1
+    #[serde(default = "default_screenshot_hotkey")]
+    pub screenshot_hotkey: HotkeySpec,
+    /// 截图保存目录（留空则默认 ~/Downloads）
+    #[serde(default = "default_screenshot_save_dir")]
+    pub screenshot_save_dir: String,
     /// 打开收藏夹：默认 Cmd+Shift+F
     #[serde(default = "default_favorites_hotkey")]
     pub favorites_hotkey: HotkeySpec,
@@ -251,11 +257,22 @@ fn default_overlay_hotkey() -> HotkeySpec {
         key: "O".into(),
     }
 }
+fn default_screenshot_hotkey() -> HotkeySpec {
+    HotkeySpec {
+        modifiers: vec![],
+        key: "F1".into(),
+    }
+}
 fn default_favorites_hotkey() -> HotkeySpec {
     HotkeySpec {
         modifiers: vec!["cmd".into(), "shift".into()],
         key: "F".into(),
     }
+}
+fn default_screenshot_save_dir() -> String {
+    dirs::download_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
 
 /// 一个热键：`modifiers + key`。运行时由 [`crate::app::hotkey`] 转成
@@ -531,6 +548,8 @@ impl Default for Config {
             silent_replace_hotkey: default_silent_replace_hotkey(),
             silent_input_hotkey: default_silent_input_hotkey(),
             overlay_hotkey: default_overlay_hotkey(),
+            screenshot_hotkey: default_screenshot_hotkey(),
+            screenshot_save_dir: default_screenshot_save_dir(),
             favorites_hotkey: default_favorites_hotkey(),
             ocr_continuous: false,
             ocr_auto_copy: true,
@@ -555,6 +574,19 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn resolve_screenshot_save_dir(&self) -> PathBuf {
+        let trimmed = self.screenshot_save_dir.trim();
+        if !trimmed.is_empty() {
+            let p = PathBuf::from(trimmed);
+            if p.exists() || std::fs::create_dir_all(&p).is_ok() {
+                return p;
+            }
+        }
+        dirs::download_dir()
+            .or_else(dirs::desktop_dir)
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
     /// 从默认配置生成（首次启动时使用）。
     pub fn fresh() -> Self {
         Self::default()

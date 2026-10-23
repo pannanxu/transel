@@ -627,8 +627,9 @@ impl SettingsView {
     }
 
     fn render_hotkeys(&mut self, p: &crate::ui::theme::Palette) -> AnyElement {
-        let items: [(String, &str, HotkeySpec); 14] = [
+        let items: [(String, &str, HotkeySpec); 15] = [
             ("划词翻译".into(), "translate", self.cfg.translate_hotkey.clone()),
+            ("独立截图".into(), "screenshot", self.cfg.screenshot_hotkey.clone()),
             ("截图翻译".into(), "ocr", self.cfg.ocr_hotkey.clone()),
             ("截图 OCR".into(), "ocr_only", self.cfg.ocr_only_hotkey.clone()),
             ("静默截图 OCR".into(), "ocr_silent", self.cfg.ocr_silent_hotkey.clone()),

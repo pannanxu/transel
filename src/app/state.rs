@@ -56,6 +56,7 @@ pub enum TrayEvent {
     OpenFavorites,
     OpenInput,
     PinToggle,
+    Screenshot,
     Ocr,
     OcrOnly,
     OcrSilent,

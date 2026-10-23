@@ -62,6 +62,10 @@ pub(super) fn platform_capture_region(
     Ok((read_png(&path)?, path))
 }
 
+pub(super) fn capture_interactive_annotated_path() -> anyhow::Result<PathBuf> {
+    capture_interactive_path()
+}
+
 pub(super) fn capture_interactive_path() -> anyhow::Result<PathBuf> {
     let path = new_png_path("region");
     let p = path_str(&path)?;

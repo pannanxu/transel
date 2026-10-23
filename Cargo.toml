@@ -40,6 +40,8 @@ env_logger = "0.11"
 urlencoding = "2"
 raw-window-handle = "0.6"
 png = "0.17"
+image = { version = "0.25", default-features = false, features = ["png"] }
+ab_glyph = "0.2"
 # 新增基础设施
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 dirs = "5"

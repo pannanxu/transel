@@ -16,11 +16,7 @@ pub fn resolve_with_options(
     ocr_model: &str,
     ocr_threads: usize,
 ) -> SharedOcrEngine {
-    resolve_kind_with_options(
-        OcrBackendKind::parse(ocr_backend),
-        ocr_model,
-        ocr_threads,
-    )
+    resolve_kind_with_options(OcrBackendKind::parse(ocr_backend), ocr_model, ocr_threads)
 }
 
 pub fn resolve_kind(kind: OcrBackendKind) -> SharedOcrEngine {

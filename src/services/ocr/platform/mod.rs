@@ -51,7 +51,20 @@ pub fn capture_interactive() -> anyhow::Result<PathBuf> {
     capture_interactive_path()
 }
 
-pub(super) fn new_png_path(prefix: &str) -> PathBuf {
+/// 交互式带标注工具栏截图，完成后默认复制到剪贴板，返回 PNG 路径。
+pub fn capture_interactive_annotated() -> anyhow::Result<PathBuf> {
+    capture_interactive_annotated_path()
+}
+
+#[cfg(target_os = "macos")]
+pub fn prewarm_snip_helper() {
+    macos::prewarm_snip_helper();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn prewarm_snip_helper() {}
+
+pub fn new_png_path(prefix: &str) -> PathBuf {
     let name = format!(
         "st-{}-{}.png",
         prefix,

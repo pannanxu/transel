@@ -397,6 +397,14 @@ impl SettingsView {
                             .default_value(true),
                         )
                         .description("按段落合并断行。"),
+                        SettingItem::new(
+                            "截图保存目录",
+                            SettingField::input(
+                                |cx| SharedString::from(draft(cx).cfg.screenshot_save_dir.clone()),
+                                |val, cx| draft_mut(cx).cfg.screenshot_save_dir = val.to_string(),
+                            ),
+                        )
+                        .description("点击截图工具栏中的保存按钮时直接保存的目标路径，默认为 ~/Downloads。"),
                     ]),
                 SettingGroup::new()
                     .title("PaddleOCR (本地模型)")
@@ -454,6 +462,7 @@ impl SettingsView {
         type HotkeyGetter = fn(&Config) -> &HotkeySpec;
         let items: Vec<(&'static str, HotkeyGetter)> = vec![
             ("划词翻译", |c| &c.translate_hotkey),
+            ("独立截图 (F1)", |c| &c.screenshot_hotkey),
             ("截图翻译", |c| &c.ocr_hotkey),
             ("截图 OCR", |c| &c.ocr_only_hotkey),
             ("静默截图 OCR", |c| &c.ocr_silent_hotkey),
@@ -723,11 +732,7 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn model_download_row(
-    options: &RenderOptions,
-    view: Entity<SettingsView>,
-    cx: &App,
-) -> AnyElement {
+fn model_download_row(options: &RenderOptions, view: Entity<SettingsView>, cx: &App) -> AnyElement {
     let current_model = draft(cx).cfg.ocr_model.clone();
     let status_opt = ocr::check_model_status(&current_model);
     let is_downloading = ocr::is_downloading_model(&current_model);
@@ -876,12 +881,7 @@ fn model_download_row(
                     }
                 }),
         )
-        .child(
-            div()
-                .text_xs()
-                .text_color(status_color)
-                .child(info_text),
-        )
+        .child(div().text_xs().text_color(status_color).child(info_text))
         .into_any_element()
 }
 
@@ -2501,6 +2501,7 @@ fn save_ocr_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
     c.ocr_continuous = d.ocr_continuous;
     c.ocr_auto_copy = d.ocr_auto_copy;
     c.ocr_smart_paragraph = d.ocr_smart_paragraph;
+    c.screenshot_save_dir = d.screenshot_save_dir;
     c.ocr_model = d.ocr_model;
     c.ocr_threads = d.ocr_threads;
     write_live(c, true, "OCR 设置已保存", on_save, cx);
@@ -2512,6 +2513,7 @@ fn save_hotkeys_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) 
     type HotkeySetter = fn(&mut Config, HotkeySpec);
     let setters: Vec<(&str, HotkeySetter)> = vec![
         ("划词翻译", |c, v| c.translate_hotkey = v),
+        ("独立截图 (F1)", |c, v| c.screenshot_hotkey = v),
         ("截图翻译", |c, v| c.ocr_hotkey = v),
         ("截图 OCR", |c, v| c.ocr_only_hotkey = v),
         ("静默截图 OCR", |c, v| c.ocr_silent_hotkey = v),
@@ -2571,6 +2573,7 @@ fn save_hotkeys_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) 
     c.silent_replace_hotkey = d.silent_replace_hotkey;
     c.silent_input_hotkey = d.silent_input_hotkey;
     c.overlay_hotkey = d.overlay_hotkey;
+    c.screenshot_hotkey = d.screenshot_hotkey;
     c.favorites_hotkey = d.favorites_hotkey;
     write_live(c, false, "快捷键已保存", on_save, cx);
 }

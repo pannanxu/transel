@@ -51,7 +51,9 @@ pub fn trigger_ocr(cx: &mut App) {
         let result = cx
             .background_executor()
             .spawn(async move {
-                let r = ocr::recognize_path(&path, None)?;
+                let r = ocr::recognize_path(&path, None);
+                let _ = std::fs::remove_file(&path);
+                let r = r?;
                 let text = ocr::finalize_text(&r.text, &r.qr_payloads, smart);
                 Ok::<_, anyhow::Error>((text, r))
             })
@@ -141,7 +143,9 @@ pub fn trigger_ocr_only(cx: &mut App, silent: bool) {
         let result = cx
             .background_executor()
             .spawn(async move {
-                let r = ocr::recognize_path(&path, None)?;
+                let r = ocr::recognize_path(&path, None);
+                let _ = std::fs::remove_file(&path);
+                let r = r?;
                 let text = ocr::finalize_text(&r.text, &r.qr_payloads, smart);
                 Ok::<_, anyhow::Error>(text)
             })
@@ -377,4 +381,9 @@ pub fn open_window(cx: &mut App, text: String, loading: bool) {
             log::error!("打开 OCR 窗口失败: {e:#}");
         }
     }
+}
+
+/// 独立截图与图片标注工具（默认 F1）：选区后弹出绘图标注工具栏，按下回车默认复制到剪贴板。
+pub fn trigger_screenshot(cx: &mut App) {
+    crate::features::screenshot::trigger_screenshot(cx);
 }

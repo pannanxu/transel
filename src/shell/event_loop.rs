@@ -39,6 +39,7 @@ pub fn spawn(cx: &mut App) {
                             .await;
                         cx.update(|cx| features::popup::open_input(cx, mouse));
                     }
+                    TrayEvent::Screenshot => cx.update(features::screenshot::trigger_screenshot),
                     TrayEvent::Ocr => cx.update(features::ocr::trigger_ocr),
                     TrayEvent::OcrOnly => {
                         cx.update(|cx| features::ocr::trigger_ocr_only(cx, false))
@@ -169,6 +170,7 @@ async fn handle_hotkey(name: &str, cx: &mut AsyncApp) {
                 }
             }
         }
+        "screenshot" => cx.update(features::screenshot::trigger_screenshot),
         "ocr" => cx.update(features::ocr::trigger_ocr),
         "ocr_only" => cx.update(|cx| features::ocr::trigger_ocr_only(cx, false)),
         "ocr_silent" => cx.update(|cx| features::ocr::trigger_ocr_only(cx, true)),

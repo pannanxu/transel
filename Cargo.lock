@@ -8112,6 +8112,7 @@ dependencies = [
 name = "transel"
 version = "0.2.0"
 dependencies = [
+ "ab_glyph",
  "accessibility-sys",
  "anyhow",
  "arboard",
@@ -8127,6 +8128,7 @@ dependencies = [
  "gpui-kit",
  "gtk",
  "hmac",
+ "image",
  "keyring",
  "log",
  "md5",

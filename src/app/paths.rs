@@ -55,6 +55,22 @@ pub fn ocr_cache_dir() -> PathBuf {
     dir
 }
 
+/// 清理临时 OCR 缓存中的历史残余文件
+pub fn cleanup_ocr_cache() {
+    let dir = cache_dir().join("ocr");
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if let Some(name) = p.file_name().and_then(|n| n.to_str())
+                && name.starts_with("st-")
+                && name.ends_with(".png")
+            {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+    }
+}
+
 /// 图标/资源目录（运行时只读；打包时随安装包发布）。
 pub fn resource_dir() -> Option<PathBuf> {
     // 优先 `$ST_RESOURCE_DIR`，其次 `assets/`，最后可执行文件旁边的 `assets/`。

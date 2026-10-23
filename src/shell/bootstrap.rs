@@ -41,6 +41,7 @@ pub fn run() {
         .with_assets(AppAssets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
+            crate::app::paths::cleanup_ocr_cache();
             theme::sync_kit_theme(None, cx);
             cx.set_quit_mode(QuitMode::Explicit);
             // Info.plist 不设 LSUIElement，以便 Spotlight / 启动台能搜到；
@@ -54,6 +55,10 @@ pub fn run() {
             features::favorites::init_keybindings(cx);
             features::ocr::init_keybindings(cx);
             features::overlay::init_keybindings(cx);
+            crate::shared::actions::bind_window_close_keys(
+                cx,
+                Some(crate::shared::actions::SCREENSHOT_KEY_CONTEXT),
+            );
             // 输入框聚焦时 context 可能不是窗口根；无 context 绑定作兜底。
             crate::shared::actions::bind_window_close_keys(cx, None);
             #[cfg(target_os = "macos")]
@@ -69,6 +74,7 @@ pub fn run() {
             ]);
             crate::shared::actions::install_app_menus(cx);
             cx.on_action(|_: &crate::shared::actions::CloseWindow, cx| {
+                crate::features::screenshot::close_window(cx);
                 crate::shared::actions::close_front_window(cx);
             });
             cx.on_action(|_: &crate::shared::actions::QuitApp, cx| {
@@ -80,6 +86,8 @@ pub fn run() {
                 log::warn!("请在 系统设置 → 隐私与安全性 → 辅助功能 中授权本程序，然后重启它");
             }
 
+            crate::services::ocr::prewarm_snip_helper();
+
             let service = TranslateService::start(&cfg);
             let history = Arc::new(
                 HistoryStore::open(&paths::history_file(), cfg.history_limit).expect("history"),
@@ -90,6 +98,7 @@ pub fn run() {
             let mut hotkeys = HotkeySet::new().expect("hotkey manager");
             for (name, spec) in [
                 ("translate", &cfg.translate_hotkey),
+                ("screenshot", &cfg.screenshot_hotkey),
                 ("ocr", &cfg.ocr_hotkey),
                 ("input", &cfg.input_hotkey),
                 ("speak", &cfg.speak_hotkey),

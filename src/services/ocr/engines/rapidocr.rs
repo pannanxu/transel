@@ -110,7 +110,9 @@ fn is_asset_verified(path: &Path, asset: &ModelAssetSpec) -> bool {
     if let Some(expected_sha) = asset.sha256 {
         verify_file_sha256(path, expected_sha)
     } else {
-        std::fs::metadata(path).map(|m| m.len() > 0).unwrap_or(false)
+        std::fs::metadata(path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
     }
 }
 
@@ -451,10 +453,7 @@ impl RapidOcrEngine {
                     target_spec.name
                 );
                 if let Some(fallback_spec) = Self::find_available_cached_model(&cache, pipeline) {
-                    log::info!(
-                        "暂使用本地已有完整模型 ({})",
-                        fallback_spec.name
-                    );
+                    log::info!("暂使用本地已有完整模型 ({})", fallback_spec.name);
                     (fallback_spec, fallback_spec.name.to_string())
                 } else {
                     anyhow::bail!(
@@ -502,10 +501,7 @@ impl RapidOcrEngine {
                     if let Some(fallback_spec) = Self::find_available_cached_model(&cache, pipeline)
                         && fallback_spec.name != target_spec.name
                     {
-                        log::warn!(
-                            "降级使用本地已有完整模型 ({})",
-                            fallback_spec.name
-                        );
+                        log::warn!("降级使用本地已有完整模型 ({})", fallback_spec.name);
                         let mut fallback_cfg =
                             cache.config_for(fallback_spec).with_pipeline(pipeline);
                         fallback_cfg.inference.intra_threads = resolved_threads;

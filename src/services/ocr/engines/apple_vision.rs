@@ -156,14 +156,18 @@ mod tests {
         let img = manifest_dir.join("docs").join("demo1.png");
         if img.exists() {
             let engine = AppleVisionEngine::new();
-            let text = engine.recognize(&img, None).expect("Apple Vision recognize");
+            let text = engine
+                .recognize(&img, None)
+                .expect("Apple Vision recognize");
             assert!(text.contains("Transel") || text.contains("Google"));
 
             let boxes = AppleVisionEngine::recognize_boxes(&img).expect("Apple Vision boxes");
             assert!(!boxes.is_empty());
-            assert!(boxes
-                .iter()
-                .any(|b| b.text.contains("Transel") || b.text.contains("Google")));
+            assert!(
+                boxes
+                    .iter()
+                    .any(|b| b.text.contains("Transel") || b.text.contains("Google"))
+            );
         }
     }
 }
