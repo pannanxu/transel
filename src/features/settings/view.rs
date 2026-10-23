@@ -210,6 +210,18 @@ impl SettingsView {
                     )
                     .description("关闭时出现在屏幕中上方。"),
                 ]),
+                SettingGroup::new().title("系统").items(vec![
+                    SettingItem::new(
+                        "开机自启动",
+                        SettingField::switch(
+                            |cx| draft(cx).cfg.auto_start,
+                            |val, cx| draft_mut(cx).cfg.auto_start = val,
+                        )
+                        .default_value(false),
+                    )
+                    .description("开机或登录系统时自动启动 Transel。")
+                    .keywords(["自启", "开机", "启动", "系统", "autostart", "startup"]),
+                ]),
                 SettingGroup::new().title("历史").items(vec![
                     SettingItem::new(
                         "历史最大条数",
@@ -1884,6 +1896,9 @@ fn write_live(
         draft_mut(cx).status = Some(format!("保存失败: {e}"));
         return;
     }
+    if let Err(e) = crate::platform::autostart::set_auto_start(next.auto_start) {
+        log::warn!("设置开机自启动失败: {e:#}");
+    }
     if apply_ocr {
         let backend = next.ocr_backend.clone();
         std::thread::Builder::new()
@@ -1904,6 +1919,7 @@ fn save_translate_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App
     c.auto_swap = d.auto_swap;
     c.pin_popup_by_default = d.pin_popup_by_default;
     c.popup_follow_mouse = d.popup_follow_mouse;
+    c.auto_start = d.auto_start;
     c.history_limit = d.history_limit;
     write_live(c, false, "翻译设置已保存", on_save, cx);
 }

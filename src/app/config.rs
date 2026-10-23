@@ -84,6 +84,9 @@ pub struct Config {
     /// 弹窗是否跟随鼠标；关闭时固定在屏幕中上方（默认关闭）
     #[serde(default)]
     pub popup_follow_mouse: bool,
+    /// 是否开机自启动
+    #[serde(default)]
+    pub auto_start: bool,
     /// 启用的翻译后端（顺序即优先级，重复启用会全部并排展示）
     #[serde(default = "default_backends")]
     pub backends: Vec<BackendEntry>,
@@ -488,6 +491,7 @@ impl Default for Config {
             auto_swap: true,
             pin_popup_by_default: false,
             popup_follow_mouse: false,
+            auto_start: false,
             backends: default_backends(),
             ocr_backend: default_ocr_backend(),
             tts_backend: default_tts_backend(),

@@ -572,6 +572,34 @@ impl SettingsView {
                     .flex_row()
                     .items_center()
                     .gap(px(6.))
+                    .child(div().text_size(px(12.5)).text_color(p.muted).child("开机自启动:"))
+                    .child(
+                        div()
+                            .id("auto_start")
+                            .px(px(8.))
+                            .py(px(3.))
+                            .rounded(px(5.))
+                            .bg(if self.cfg.auto_start {
+                                p.tab_active
+                            } else {
+                                p.tab_inactive
+                            })
+                            .text_size(px(11.5))
+                            .text_color(p.text)
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cfg.auto_start = !this.cfg.auto_start;
+                                cx.notify();
+                            }))
+                            .child(if self.cfg.auto_start { "开" } else { "关" }),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(6.))
                     .child(div().text_size(px(12.5)).text_color(p.muted).child("历史最大条数:"))
                     .child(
                         div()
