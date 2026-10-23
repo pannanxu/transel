@@ -34,3 +34,8 @@ Desktop.ini
 *.log
 *.tmp
 *.partial
+
+# Agents
+.agents/
+skills-lock.json
+

@@ -331,47 +331,123 @@ impl SettingsView {
     }
 
     fn page_ocr(&self, view: Entity<Self>) -> SettingPage {
+        let backend_opts: Vec<(SharedString, SharedString)> =
+            crate::services::ocr::OcrBackendKind::available()
+                .iter()
+                .map(|k| (k.as_str().into(), k.label().into()))
+                .collect();
+
+        let model_opts: Vec<(SharedString, SharedString)> =
+            crate::services::ocr::engines::RAPIDOCR_MODELS
+                .iter()
+                .map(|(id, name)| ((*id).into(), (*name).into()))
+                .collect();
+
         SettingPage::new("OCR 设置")
             .icon(IconName::Eye)
             .resettable(false)
-            .groups(vec![SettingGroup::new()
-                .title("识别")
-                .items(vec![
-                    SettingItem::new(
-                        "连续识别",
-                        SettingField::switch(
-                            |cx| draft(cx).cfg.ocr_continuous,
-                            |val, cx| draft_mut(cx).cfg.ocr_continuous = val,
+            .groups(vec![
+                SettingGroup::new()
+                    .title("通用")
+                    .items(vec![
+                        SettingItem::new(
+                            "OCR 引擎",
+                            SettingField::scrollable_dropdown(
+                                backend_opts,
+                                |cx| draft(cx).cfg.ocr_backend.clone().into(),
+                                |val, cx| {
+                                    draft_mut(cx).cfg.ocr_backend = val.to_string();
+                                    set_status(
+                                        StatusKind::Info,
+                                        format!("OCR 引擎：{val}（保存后生效）"),
+                                        cx,
+                                    );
+                                },
+                            ),
                         )
-                        .default_value(false),
-                    )
-                    .description("新结果追加到 OCR 窗口。"),
-                    SettingItem::new(
-                        "自动复制",
-                        SettingField::switch(
-                            |cx| draft(cx).cfg.ocr_auto_copy,
-                            |val, cx| draft_mut(cx).cfg.ocr_auto_copy = val,
+                        .description(if cfg!(target_os = "macos") {
+                            "macOS 推荐选择 Apple Vision（系统原生零配置加速），亦可选用 PaddleOCR。"
+                        } else {
+                            "推荐选择本地 PaddleOCR。"
+                        }),
+                        SettingItem::new(
+                            "连续识别",
+                            SettingField::switch(
+                                |cx| draft(cx).cfg.ocr_continuous,
+                                |val, cx| draft_mut(cx).cfg.ocr_continuous = val,
+                            )
+                            .default_value(false),
                         )
-                        .default_value(true),
-                    ),
-                    SettingItem::new(
-                        "智能分段",
-                        SettingField::switch(
-                            |cx| draft(cx).cfg.ocr_smart_paragraph,
-                            |val, cx| draft_mut(cx).cfg.ocr_smart_paragraph = val,
+                        .description("新结果追加到 OCR 窗口。"),
+                        SettingItem::new(
+                            "自动复制",
+                            SettingField::switch(
+                                |cx| draft(cx).cfg.ocr_auto_copy,
+                                |val, cx| draft_mut(cx).cfg.ocr_auto_copy = val,
+                            )
+                            .default_value(true),
                         )
-                        .default_value(true),
-                    )
-                    .description("按段落合并断行。"),
-                    SettingItem::render({
-                        let view = view.clone();
-                        move |options, _, cx| ort_download_row(options, view.clone(), cx)
-                    })
-                    .keywords(["ONNX", "OCR", "下载", "引擎"]),
-                ])
-                .footer(|_, _| {
-                    "引擎在「服务 → 文本识别」中选择。本地 RapidOCR 需先下载 ONNX Runtime。"
-                })])
+                        .description("识别完成后自动复制到剪贴板。"),
+                        SettingItem::new(
+                            "智能分段",
+                            SettingField::switch(
+                                |cx| draft(cx).cfg.ocr_smart_paragraph,
+                                |val, cx| draft_mut(cx).cfg.ocr_smart_paragraph = val,
+                            )
+                            .default_value(true),
+                        )
+                        .description("按段落合并断行。"),
+                    ]),
+                SettingGroup::new()
+                    .title("PaddleOCR (本地模型)")
+                    .items(vec![
+                        SettingItem::new(
+                            "识别模型",
+                            SettingField::scrollable_dropdown(
+                                model_opts,
+                                |cx| draft(cx).cfg.ocr_model.clone().into(),
+                                |val, cx| {
+                                    draft_mut(cx).cfg.ocr_model = val.to_string();
+                                    set_status(
+                                        StatusKind::Info,
+                                        format!("OCR 模型：{val}（保存后生效）"),
+                                        cx,
+                                    );
+                                },
+                            ),
+                        )
+                        .description("推荐 server 高精模型；可在下方查看下载状态或一键下载。"),
+                        SettingItem::render({
+                            let view = view.clone();
+                            move |options, _, cx| model_download_row(options, view.clone(), cx)
+                        })
+                        .keywords(["模型", "下载", "RapidOCR", "PaddleOCR", "权重"]),
+                        SettingItem::new(
+                            "推理线程数",
+                            SettingField::number_input(
+                                NumberFieldOptions {
+                                    min: 0.0,
+                                    max: 32.0,
+                                    ..Default::default()
+                                },
+                                |cx| draft(cx).cfg.ocr_threads as f64,
+                                |val, cx| {
+                                    draft_mut(cx).cfg.ocr_threads = val.max(0.0) as usize;
+                                },
+                            )
+                            .default_value(0.0),
+                        )
+                        .description("0 为自动检测 CPU 核心数；多线程可显著加速本地识别。"),
+                        SettingItem::render({
+                            let view = view.clone();
+                            move |options, _, cx| ort_download_row(options, view.clone(), cx)
+                        })
+                        .keywords(["ONNX", "OCR", "下载", "引擎"]),
+                    ])
+                    .footer(|_, _| {
+                        "若启用 PaddleOCR，需确保 ONNX Runtime 及模型文件就绪；macOS 使用 Apple Vision 时无需下载任何文件。"
+                    }),
+            ])
     }
 
     fn page_hotkeys(&self, view: Entity<Self>) -> SettingPage {
@@ -635,6 +711,180 @@ fn floating_status_toast(
         .into_any_element()
 }
 
+fn format_bytes(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes >= 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+fn model_download_row(
+    options: &RenderOptions,
+    view: Entity<SettingsView>,
+    cx: &App,
+) -> AnyElement {
+    let current_model = draft(cx).cfg.ocr_model.clone();
+    let status_opt = ocr::check_model_status(&current_model);
+    let is_downloading = ocr::is_downloading_model(&current_model);
+    let progress = ocr::get_download_progress();
+    let size = options.size();
+
+    let (can_download, btn_label, info_text, status_color) = match (is_downloading, &status_opt) {
+        (true, _) => {
+            let (pct_label, desc) = if let Some(total) = progress.file_total_bytes {
+                let pct = if total > 0 {
+                    (progress.file_downloaded_bytes as f64 / total as f64 * 100.0).clamp(0.0, 100.0)
+                } else {
+                    0.0
+                };
+                (
+                    format!("下载中 {pct:.0}%"),
+                    format!(
+                        "⏳ [{}/{}] {} · {} / {} ({:.1}%)",
+                        progress.file_index,
+                        progress.total_files,
+                        progress.current_filename,
+                        format_bytes(progress.file_downloaded_bytes),
+                        format_bytes(total),
+                        pct
+                    ),
+                )
+            } else {
+                (
+                    "下载中…".to_string(),
+                    format!(
+                        "⏳ [{}/{}] {} · 已接收 {}",
+                        progress.file_index,
+                        progress.total_files,
+                        progress.current_filename,
+                        format_bytes(progress.file_downloaded_bytes)
+                    ),
+                )
+            };
+            (false, pct_label, desc, cx.theme().accent)
+        }
+        (false, Some(info)) if info.is_downloaded => (
+            false,
+            "模型已就绪".to_string(),
+            format!(
+                "● 已就绪 · 共 {} 个文件（{}）",
+                info.total_files,
+                format_bytes(info.total_size_bytes)
+            ),
+            hsla(142.0 / 360.0, 0.7, 0.45, 1.0),
+        ),
+        (false, Some(info)) => (
+            true,
+            "下载此模型".to_string(),
+            format!(
+                "▲ 未完整下载（缺失 {}/{} 个文件）· 点击立即下载",
+                info.missing_files, info.total_files
+            ),
+            hsla(38.0 / 360.0, 0.9, 0.5, 1.0),
+        ),
+        (false, None) => (
+            false,
+            "未知模型".to_string(),
+            format!("未知模型集: {current_model}"),
+            cx.theme().muted_foreground,
+        ),
+    };
+
+    h_flex()
+        .w_full()
+        .items_center()
+        .gap_2()
+        .child(
+            Button::new("ocr_download_model")
+                .when(can_download, |b| b.primary())
+                .disabled(!can_download)
+                .label(btn_label)
+                .with_size(size)
+                .on_click({
+                    let view = view.clone();
+                    let model_to_download = current_model.clone();
+                    move |_, _, cx| {
+                        if !can_download {
+                            return;
+                        }
+                        set_status(
+                            StatusKind::Info,
+                            format!("开始下载模型 {model_to_download}（来自 ModelScope）…"),
+                            cx,
+                        );
+                        view.update(cx, |_, cx| cx.notify());
+
+                        // 启动定时刷新循环，使下载进度平滑实时展示
+                        let view_progress = view.clone();
+                        cx.spawn(async move |cx| {
+                            while ocr::is_any_model_downloading() {
+                                cx.background_executor()
+                                    .timer(std::time::Duration::from_millis(200))
+                                    .await;
+                                view_progress.update(cx, |_, cx| cx.notify());
+                            }
+                            view_progress.update(cx, |_, cx| cx.notify());
+                        })
+                        .detach();
+
+                        let view2 = view.clone();
+                        let target_model = model_to_download.clone();
+                        cx.spawn(async move |cx| {
+                            let tm = target_model.clone();
+                            let result = cx
+                                .background_executor()
+                                .spawn(async move { ocr::download_model(&tm) })
+                                .await;
+
+                            view2.update(cx, |_, cx| {
+                                match result {
+                                    Ok(path) => {
+                                        let backend = draft(cx).cfg.ocr_backend.clone();
+                                        let model = draft(cx).cfg.ocr_model.clone();
+                                        let threads = draft(cx).cfg.ocr_threads;
+                                        std::thread::Builder::new()
+                                            .name("ocr-engine-init".into())
+                                            .spawn(move || {
+                                                ocr::set_engine_from_config(
+                                                    &backend, &model, threads,
+                                                )
+                                            })
+                                            .ok();
+                                        set_status(
+                                            StatusKind::Success,
+                                            format!("模型已就绪并加载！\n{}", path.display()),
+                                            cx,
+                                        );
+                                    }
+                                    Err(e) => {
+                                        set_status(
+                                            StatusKind::Error,
+                                            format!("模型下载失败: {e:#}"),
+                                            cx,
+                                        );
+                                    }
+                                }
+                                cx.notify();
+                            });
+                        })
+                        .detach();
+                    }
+                }),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(status_color)
+                .child(info_text),
+        )
+        .into_any_element()
+}
+
 fn ort_download_row(options: &RenderOptions, view: Entity<SettingsView>, cx: &App) -> AnyElement {
     let label = ocr::ort_status_label();
     let st = ocr::ort_status();
@@ -677,9 +927,15 @@ fn ort_download_row(options: &RenderOptions, view: Entity<SettingsView>, cx: &Ap
                                 match result {
                                     Ok(path) => {
                                         let backend = draft(cx).cfg.ocr_backend.clone();
+                                        let model = draft(cx).cfg.ocr_model.clone();
+                                        let threads = draft(cx).cfg.ocr_threads;
                                         std::thread::Builder::new()
-                                            .name("ocr-warmup".into())
-                                            .spawn(move || ocr::set_engine_from_config(&backend))
+                                            .name("ocr-engine-init".into())
+                                            .spawn(move || {
+                                                ocr::set_engine_from_config(
+                                                    &backend, &model, threads,
+                                                )
+                                            })
                                             .ok();
                                         set_status(
                                             StatusKind::Success,
@@ -1176,12 +1432,22 @@ fn ocr_list_rows(
         .map(|kind| {
             let id = kind.as_str();
             let selected = current == id;
-            let builtin = matches!(kind, OcrBackendKind::Auto | OcrBackendKind::RapidOcr);
+            let builtin = matches!(
+                kind,
+                OcrBackendKind::Auto | OcrBackendKind::AppleVision | OcrBackendKind::RapidOcr
+            );
+            let badge = if *kind == OcrBackendKind::AppleVision {
+                "原生"
+            } else if builtin {
+                "内置"
+            } else {
+                "密钥"
+            };
             service_row(
                 format!("ocr_row_{id}"),
                 icons::OCR,
                 kind.label().to_string(),
-                if builtin { "内置" } else { "密钥" },
+                badge,
                 selected,
                 selected,
                 p,
@@ -1357,13 +1623,34 @@ fn ocr_detail(
                 .child(kind.label()),
         )
         .child(div().text_xs().text_color(p.muted).child(
-            if matches!(kind, OcrBackendKind::Auto | OcrBackendKind::RapidOcr) {
-                "本地识别。需先下载 ONNX Runtime。"
+            if kind == OcrBackendKind::AppleVision {
+                "macOS 系统原生 Vision 文本识别，硬件加速（Neural Engine / GPU），毫秒级响应，无需下载模型或运行时。"
+            } else if matches!(kind, OcrBackendKind::Auto | OcrBackendKind::RapidOcr) {
+                "本地 PaddleOCR 识别。需下载模型文件与 ONNX Runtime（可在下方查看下载状态）。"
             } else {
                 "云端识别，使用对应厂商密钥（环境变量或钥匙串）。"
             },
         ))
-        .child(ort_download_row(options, view.clone(), cx))
+        .child(
+            if kind == OcrBackendKind::AppleVision {
+                div()
+                    .rounded(px(8.))
+                    .bg(p.hover)
+                    .p_3()
+                    .text_xs()
+                    .text_color(p.text)
+                    .child("● Apple Vision 引擎已内建于 macOS，开箱即用，支持多国语言混合高精识别。")
+                    .into_any_element()
+            } else if matches!(kind, OcrBackendKind::Auto | OcrBackendKind::RapidOcr) {
+                v_flex()
+                    .gap_2()
+                    .child(model_download_row(options, view.clone(), cx))
+                    .child(ort_download_row(options, view.clone(), cx))
+                    .into_any_element()
+            } else {
+                ort_download_row(options, view.clone(), cx)
+            },
+        )
         .child(div().flex_1())
         .child(page_save_button(
             "ocr_engine_save",
@@ -2182,9 +2469,11 @@ fn write_live(
     }
     if apply_ocr {
         let backend = next.ocr_backend.clone();
+        let model = next.ocr_model.clone();
+        let threads = next.ocr_threads;
         std::thread::Builder::new()
             .name("ocr-switch".into())
-            .spawn(move || ocr::set_engine_from_config(&backend))
+            .spawn(move || ocr::set_engine_from_config(&backend, &model, threads))
             .ok();
     }
     cx.global::<AppState>().reload_config(next.clone());
@@ -2208,10 +2497,13 @@ fn save_translate_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App
 fn save_ocr_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
     let d = draft(cx).cfg.clone();
     let mut c = live_config(cx);
+    c.ocr_backend = d.ocr_backend;
     c.ocr_continuous = d.ocr_continuous;
     c.ocr_auto_copy = d.ocr_auto_copy;
     c.ocr_smart_paragraph = d.ocr_smart_paragraph;
-    write_live(c, false, "OCR 设置已保存", on_save, cx);
+    c.ocr_model = d.ocr_model;
+    c.ocr_threads = d.ocr_threads;
+    write_live(c, true, "OCR 设置已保存", on_save, cx);
 }
 
 fn save_hotkeys_form(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
@@ -2335,6 +2627,8 @@ fn save_one_backend(id: &str, on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &
 fn save_ocr_engine(on_save: &Arc<dyn Fn(Config) + Send + Sync>, cx: &mut App) {
     let mut c = live_config(cx);
     c.ocr_backend = draft(cx).cfg.ocr_backend.clone();
+    c.ocr_model = draft(cx).cfg.ocr_model.clone();
+    c.ocr_threads = draft(cx).cfg.ocr_threads;
     write_live(c, true, "OCR 服务已保存", on_save, cx);
 }
 

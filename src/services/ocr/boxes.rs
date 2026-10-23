@@ -23,6 +23,18 @@ pub struct TextBox {
 
 /// 识别带框文本；失败或无结果时返回空 Vec。
 pub fn recognize_boxes(image: &Path) -> Vec<TextBox> {
+    #[cfg(target_os = "macos")]
+    {
+        if crate::services::ocr::current_engine_id() == "apple_vision" {
+            match crate::services::ocr::engines::AppleVisionEngine::recognize_boxes(image) {
+                Ok(v) => return v,
+                Err(e) => {
+                    log::warn!("Apple Vision 带框识别失败: {e:#}，尝试降级到 RapidOCR");
+                }
+            }
+        }
+    }
+
     match recognize_rapidocr_boxes(image) {
         Ok(v) => v,
         Err(e) => {

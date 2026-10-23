@@ -15,7 +15,6 @@ use crate::features;
 use crate::platform;
 #[cfg(target_os = "macos")]
 use crate::services::input;
-use crate::services::ocr;
 use crate::services::translate::TranslateService;
 use crate::shared::icons::AppAssets;
 use crate::shared::theme;
@@ -126,11 +125,6 @@ pub fn run() {
             service.set_history_callback(Arc::new(move |entry| {
                 let _ = history_for_cb.append(entry);
             }));
-
-            let ocr_backend = cfg.ocr_backend.clone();
-            cx.background_executor()
-                .spawn(async move { ocr::warmup_with_config(&ocr_backend) })
-                .detach();
 
             event_loop::spawn(cx);
         });

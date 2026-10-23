@@ -93,6 +93,12 @@ pub struct Config {
     /// OCR 后端：`auto` / `rapidocr` / `volcano_ocr` / `tencent_ocr` / `baidu_cloud` 等
     #[serde(default = "default_ocr_backend")]
     pub ocr_backend: String,
+    /// RapidOCR 模型：`ppocrv5-ch-server` / `ppocrv5-ch-mobile` / `ppocrv6-medium` / `ppocrv6-small` / `ppocrv5-en-mobile`
+    #[serde(default = "default_ocr_model")]
+    pub ocr_model: String,
+    /// RapidOCR 推理线程数：0 为自动检测核心数，>0 为指定线程数
+    #[serde(default = "default_ocr_threads")]
+    pub ocr_threads: usize,
     /// TTS 后端：`auto` / `say` / `powershell` / `spd-say` 等
     #[serde(default = "default_tts_backend")]
     pub tts_backend: String,
@@ -148,6 +154,12 @@ fn backend_params_openai(base: &str) -> BTreeMap<String, String> {
 
 fn default_ocr_backend() -> String {
     "auto".into()
+}
+fn default_ocr_model() -> String {
+    "ppocrv5-ch-mobile".into()
+}
+fn default_ocr_threads() -> usize {
+    0
 }
 fn default_tts_backend() -> String {
     "auto".into()
@@ -531,6 +543,8 @@ impl Default for Config {
             auto_start: false,
             backends: default_backends(),
             ocr_backend: default_ocr_backend(),
+            ocr_model: default_ocr_model(),
+            ocr_threads: default_ocr_threads(),
             tts_backend: default_tts_backend(),
             auto_check_update: true,
             history_limit: default_history_limit(),
@@ -647,6 +661,9 @@ impl Config {
         }
         if self.schema == 0 {
             self.schema = SCHEMA_VERSION;
+        }
+        if self.ocr_model.is_empty() {
+            self.ocr_model = default_ocr_model();
         }
         for b in self.backends.iter_mut() {
             b.ensure_id();

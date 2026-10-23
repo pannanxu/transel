@@ -179,9 +179,11 @@ impl Render for SettingsView {
                     return;
                 }
                 let backend = draft.ocr_backend.clone();
+                let model = draft.ocr_model.clone();
+                let threads = draft.ocr_threads;
                 std::thread::Builder::new()
                     .name("ocr-switch".into())
-                    .spawn(move || ocr::set_engine_from_config(&backend))
+                    .spawn(move || ocr::set_engine_from_config(&backend, &model, threads))
                     .ok();
                 cx.global::<AppState>().reload_config(draft.clone());
                 (this.actions.on_save)(draft);
@@ -318,9 +320,13 @@ impl SettingsView {
                         match result {
                             Ok(path) => {
                                 let backend = this.cfg.ocr_backend.clone();
+                                let model = this.cfg.ocr_model.clone();
+                                let threads = this.cfg.ocr_threads;
                                 std::thread::Builder::new()
-                                    .name("ocr-warmup".into())
-                                    .spawn(move || ocr::set_engine_from_config(&backend))
+                                    .name("ocr-engine-init".into())
+                                    .spawn(move || {
+                                        ocr::set_engine_from_config(&backend, &model, threads)
+                                    })
                                     .ok();
                                 this.status = Some(format!("ONNX Runtime 已就绪\n{path}"));
                             }

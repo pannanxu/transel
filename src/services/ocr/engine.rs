@@ -17,6 +17,7 @@ pub trait OcrEngine: Send + Sync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OcrBackendKind {
     Auto,
+    AppleVision,
     RapidOcr,
     Volcano,
     Tencent,
@@ -29,13 +30,16 @@ pub enum OcrBackendKind {
 impl OcrBackendKind {
     pub fn parse(s: &str) -> Self {
         match s.trim().to_ascii_lowercase().as_str() {
-            "rapidocr" | "paddle" | "ppocr" => Self::RapidOcr,
+            "applevision" | "apple_vision" | "apple" | "vision" | "apple_ocr" | "apple-ocr" => {
+                Self::AppleVision
+            }
+            "rapidocr" | "paddle" | "ppocr" | "paddleocr" | "paddle_ocr" => Self::RapidOcr,
             "volcano" | "volcano_ocr" | "volc" => Self::Volcano,
             "tencent" | "tencent_ocr" => Self::Tencent,
             "tencent_image" | "tencent_image_translate" | "tmt_image" => Self::TencentImage,
             "baidu" | "baidu_cloud" | "baidu-ocr" => Self::BaiduCloud,
             "youdao" | "youdao_cloud" | "youdao-ocr" => Self::YoudaoCloud,
-            "google" | "google_ocr" | "vision" => Self::Google,
+            "google" | "google_ocr" => Self::Google,
             "livetext" | "live_text" | "visionkit" | "tesseract" | "winrt" | "win_rt" | "auto"
             | "" => Self::Auto,
             _ => Self::Auto,
@@ -45,6 +49,7 @@ impl OcrBackendKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
+            Self::AppleVision => "apple_vision",
             Self::RapidOcr => "rapidocr",
             Self::Volcano => "volcano_ocr",
             Self::Tencent => "tencent_ocr",
@@ -57,8 +62,15 @@ impl OcrBackendKind {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Auto => "自动 (RapidOCR)",
-            Self::RapidOcr => "RapidOCR",
+            Self::Auto => {
+                if cfg!(target_os = "macos") {
+                    "自动 (Apple Vision)"
+                } else {
+                    "自动 (PaddleOCR)"
+                }
+            }
+            Self::AppleVision => "Apple Vision (系统原生)",
+            Self::RapidOcr => "PaddleOCR (本地模型)",
             Self::Volcano => "火山 OCR",
             Self::Tencent => "腾讯 OCR",
             Self::TencentImage => "腾讯图片翻译",
@@ -73,16 +85,33 @@ impl OcrBackendKind {
     }
 
     pub fn available() -> &'static [OcrBackendKind] {
-        &[
-            Self::Auto,
-            Self::RapidOcr,
-            Self::Volcano,
-            Self::Tencent,
-            Self::TencentImage,
-            Self::BaiduCloud,
-            Self::YoudaoCloud,
-            Self::Google,
-        ]
+        #[cfg(target_os = "macos")]
+        {
+            &[
+                Self::Auto,
+                Self::AppleVision,
+                Self::RapidOcr,
+                Self::Volcano,
+                Self::Tencent,
+                Self::TencentImage,
+                Self::BaiduCloud,
+                Self::YoudaoCloud,
+                Self::Google,
+            ]
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            &[
+                Self::Auto,
+                Self::RapidOcr,
+                Self::Volcano,
+                Self::Tencent,
+                Self::TencentImage,
+                Self::BaiduCloud,
+                Self::YoudaoCloud,
+                Self::Google,
+            ]
+        }
     }
 }
 

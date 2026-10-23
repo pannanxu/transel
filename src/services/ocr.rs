@@ -24,6 +24,10 @@ pub mod registry;
 
 pub use boxes::{TextBox, image_size, recognize_boxes};
 pub use engine::{OcrBackendKind, OcrEngine, SharedOcrEngine};
+pub use engines::{
+    DownloadProgressState, RapidOcrModelInfo, check_model_status, download_model,
+    get_download_progress, is_any_model_downloading, is_downloading_model, set_downloading_model,
+};
 pub use ort_runtime::{
     ORT_VERSION, OrtStatus, download_and_load as download_ort_runtime, status as ort_status,
     status_label as ort_status_label,
@@ -42,18 +46,15 @@ pub struct OcrResult {
 
 static CURRENT: Mutex<Option<SharedOcrEngine>> = Mutex::new(None);
 
-/// 安装当前 OCR 引擎（启动 / 设置保存后调用），并触发 warmup。
+/// 安装当前 OCR 引擎（启动 / 设置保存后调用）。
 pub fn set_engine(engine: SharedOcrEngine) {
     log::info!("OCR 引擎: {} ({})", engine.display_name(), engine.id());
-    let warm = engine.clone();
     *CURRENT.lock() = Some(engine);
-    // warmup 可能较慢，由调用方放到后台线程
-    warm.warmup();
 }
 
-/// 按配置字符串切换引擎。
-pub fn set_engine_from_config(ocr_backend: &str) {
-    set_engine(registry::resolve(ocr_backend));
+/// 按配置切换引擎。
+pub fn set_engine_from_config(ocr_backend: &str, ocr_model: &str, ocr_threads: usize) {
+    set_engine(registry::resolve_with_options(ocr_backend, ocr_model, ocr_threads));
 }
 
 fn current_engine() -> SharedOcrEngine {
@@ -64,32 +65,13 @@ fn current_engine() -> SharedOcrEngine {
     g.as_ref().unwrap().clone()
 }
 
-/// 启动预热：解析配置并 warmup。
-///
-/// 若尚未下载 ONNX Runtime，仅注册引擎，不强制联网下载。
-pub fn warmup_with_config(ocr_backend: &str) {
-    match ort_runtime::status() {
-        OrtStatus::Missing => {
-            log::info!(
-                "OCR：ONNX Runtime 未下载（{}），跳过预热；可在设置中下载",
-                ort_runtime::status_label()
-            );
-            *CURRENT.lock() = Some(registry::resolve(ocr_backend));
-        }
-        OrtStatus::Unsupported => {
-            log::warn!("OCR：{}", ort_runtime::status_label());
-            *CURRENT.lock() = Some(registry::resolve(ocr_backend));
-        }
-        OrtStatus::Downloaded | OrtStatus::Ready => {
-            set_engine_from_config(ocr_backend);
-        }
-    }
+/// 解析配置并设置引擎（已停用后台预热）。
+pub fn warmup_with_config(ocr_backend: &str, ocr_model: &str, ocr_threads: usize) {
+    set_engine_from_config(ocr_backend, ocr_model, ocr_threads);
 }
 
-/// 兼容旧调用：用当前引擎预热（若尚未 set 则 auto）。
-pub fn warmup() {
-    current_engine().warmup();
-}
+/// 兼容调用（已停用预热）。
+pub fn warmup() {}
 
 /// 截取整屏并识别。
 pub fn capture_and_recognize(language_hint: Option<&str>) -> Result<OcrResult> {
