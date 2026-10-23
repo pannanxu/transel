@@ -1,10 +1,15 @@
 //! Apple Vision 框架 OCR 引擎（macOS 原生）。
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+#[cfg(target_os = "macos")]
+use anyhow::Context;
+use anyhow::Result;
 
 use crate::services::ocr::boxes::TextBox;
 use crate::services::ocr::engine::OcrEngine;
@@ -145,12 +150,11 @@ fn ensure_helper() -> Result<PathBuf> {
     Ok(bin_path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 
     #[test]
-    #[cfg(target_os = "macos")]
     fn test_apple_vision_recognize_on_demo_image() {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let img = manifest_dir.join("docs").join("demo1.png");
