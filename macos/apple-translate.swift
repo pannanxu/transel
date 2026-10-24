@@ -141,36 +141,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fflush(stderr)
         switch status {
         case .installed, .supported:
-            if await translateInstalled() {
-                return
-            }
-            if status == .installed {
-                fail("Apple 翻译失败：语言包已安装但翻译被拒绝", code: 2)
-            }
-            showTaskWindow()
+            showTaskWindow(shouldDisplay: status == .supported)
         default:
             fail("Apple 翻译不支持 \(payload.srcId) → \(payload.tgtId)", code: 4)
         }
     }
 
     @MainActor
-    private func translateInstalled() async -> Bool {
-        do {
-            let session = TranslationSession(
-                installedSource: payload.src,
-                target: payload.tgt
-            )
-            let resp = try await session.translate(payload.text)
-            writeOk(resp.targetText)
-        } catch {
-            fputs("installed session failed: \(error)\n", stderr)
-            fflush(stderr)
-            return false
-        }
-    }
-
-    @MainActor
-    private func showTaskWindow() {
+    private func showTaskWindow(shouldDisplay: Bool) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 260, height: 88),
             styleMask: [.titled, .closable],
@@ -183,8 +161,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.contentView = NSHostingView(rootView: TranslateHost(payload: payload))
         window.center()
-        // 不调用 activate / makeKey，避免抢焦点把 Transel 浮窗关掉
-        window.orderFrontRegardless()
+        if shouldDisplay {
+            // 不调用 activate / makeKey，避免抢焦点把 Transel 浮窗关掉
+            window.orderFrontRegardless()
+        }
         self.window = window
     }
 }

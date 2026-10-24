@@ -63,15 +63,13 @@ fn main() {
                     "AppKit",
                     ocr_src.to_str().unwrap(),
                 ]);
-                if target_arch != env::consts::ARCH {
-                    let triple = match target_arch.as_str() {
-                        "x86_64" => "x86_64-apple-macos11.0",
-                        "aarch64" => "arm64-apple-macos11.0",
-                        _ => "",
-                    };
-                    if !triple.is_empty() {
-                        cmd.args(["-target", triple]);
-                    }
+                let triple = match target_arch.as_str() {
+                    "x86_64" => "x86_64-apple-macos11.0",
+                    "aarch64" => "arm64-apple-macos11.0",
+                    _ => "",
+                };
+                if !triple.is_empty() {
+                    cmd.args(["-target", triple]);
                 }
                 let status = cmd
                     .status()
@@ -105,15 +103,13 @@ fn main() {
                     "Translation",
                     translate_src.to_str().unwrap(),
                 ]);
-                if target_arch != env::consts::ARCH {
-                    let triple = match target_arch.as_str() {
-                        "x86_64" => "x86_64-apple-macos26.0",
-                        "aarch64" => "arm64-apple-macos26.0",
-                        _ => "",
-                    };
-                    if !triple.is_empty() {
-                        cmd.args(["-target", triple]);
-                    }
+                let triple = match target_arch.as_str() {
+                    "x86_64" => "x86_64-apple-macos15.0",
+                    "aarch64" => "arm64-apple-macos15.0",
+                    _ => "",
+                };
+                if !triple.is_empty() {
+                    cmd.args(["-target", triple]);
                 }
                 let status = cmd
                     .status()
