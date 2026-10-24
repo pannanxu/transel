@@ -110,7 +110,26 @@ pub fn recognize_path_ex(
     detect_qr: bool,
 ) -> Result<OcrResult> {
     let engine = current_engine();
-    let text = engine.recognize(path, language_hint)?;
+    let text = match engine.recognize(path, language_hint) {
+        Ok(t) => t,
+        Err(e) => {
+            #[cfg(target_os = "macos")]
+            if engine.id() == "apple_vision" {
+                log::warn!("Apple Vision OCR 失败: {e:#}，尝试降级到 RapidOCR");
+                let rapid = crate::services::ocr::engines::RapidOcrEngine::new(String::new(), 0);
+                if let Ok(fallback_text) = rapid.recognize(path, language_hint) {
+                    log::info!("降级到 RapidOCR 识别成功");
+                    fallback_text
+                } else {
+                    return Err(e);
+                }
+            } else {
+                return Err(e);
+            }
+            #[cfg(not(target_os = "macos"))]
+            return Err(e);
+        }
+    };
     let qr_payloads = if detect_qr {
         qr::detect_payloads(path)
     } else {
