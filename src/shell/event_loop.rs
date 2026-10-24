@@ -9,10 +9,10 @@ use crate::app::favorites::FavoriteEntry;
 use crate::app::history::HistoryOrigin;
 use crate::app::state::{AppState, TrayEvent};
 use crate::features;
+use crate::platform::mouse_location;
 use crate::services::input;
 use crate::services::tts;
 use crate::shell::request;
-use crate::platform::mouse_location;
 use crate::split;
 
 pub fn spawn(cx: &mut App) {

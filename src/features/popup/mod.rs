@@ -106,12 +106,7 @@ pub fn show(
     close(cx);
     let state = cx.global::<AppState>();
     let follow_mouse = state.config().popup_follow_mouse;
-    let size = content_size(
-        cx,
-        &mode,
-        &state.config().target_lang,
-        mouse,
-    );
+    let size = content_size(cx, &mode, &state.config().target_lang, mouse);
     let (bounds, display_id) = popup_bounds(cx, mouse, size, follow_mouse);
     let target_lang = state.config().target_lang.clone();
     let source_lang = state.config().source_lang.clone();

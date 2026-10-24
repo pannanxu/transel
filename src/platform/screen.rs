@@ -1,7 +1,7 @@
 //! 多屏幕与光标定位适配。
 
-use std::rc::Rc;
 use gpui_kit::*;
+use std::rc::Rc;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ScreenInfo {
@@ -33,7 +33,7 @@ pub fn mouse_location() -> Option<(f32, f32)> {
             }
             let pt = CGEventGetLocation(ev);
             core_foundation::base::CFRelease(ev as _);
-            return Some((pt.x as f32, pt.y as f32));
+            Some((pt.x as f32, pt.y as f32))
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -206,10 +206,7 @@ pub fn compute_popup_bounds(
 }
 
 /// 纯函数：计算居中窗口在目标屏幕内的窗口边界。
-pub fn compute_centered_bounds(
-    size: Size<Pixels>,
-    screen_info: ScreenInfo,
-) -> Bounds<Pixels> {
+pub fn compute_centered_bounds(size: Size<Pixels>, screen_info: ScreenInfo) -> Bounds<Pixels> {
     let (w, h) = (f32::from(size.width), f32::from(size.height));
 
     #[cfg(target_os = "macos")]
@@ -337,12 +334,8 @@ mod tests {
             size: (1920., 1080.),
         };
         // 鼠标在副屏中间 (-1000, 500)
-        let bounds = compute_popup_bounds(
-            Some((-1000., 500.)),
-            size(px(400.), px(200.)),
-            screen,
-            true,
-        );
+        let bounds =
+            compute_popup_bounds(Some((-1000., 500.)), size(px(400.), px(200.)), screen, true);
         #[cfg(target_os = "macos")]
         {
             // 局部坐标: -1000 - (-1920) + 8 = 928

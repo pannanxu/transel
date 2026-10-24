@@ -326,11 +326,8 @@ pub fn open_window(cx: &mut App, text: String, loading: bool) {
     let translate_q = cx.global::<AppState>().pending.ocr_translate.clone();
     let continuous_q = cx.global::<AppState>().pending.ocr_continuous.clone();
 
-    let (bounds, display_id) = crate::platform::centered_window_bounds(
-        cx,
-        None,
-        size(px(OCR_SIZE.0), px(OCR_SIZE.1)),
-    );
+    let (bounds, display_id) =
+        crate::platform::centered_window_bounds(cx, None, size(px(OCR_SIZE.0), px(OCR_SIZE.1)));
     let opts = PopupWindowOpts {
         bounds,
         display_id,

@@ -211,11 +211,8 @@ pub fn open_window(
     let win_w = (image_w * scale).clamp(360., 960.);
     let win_h = (image_h * scale).clamp(280., 760.) + 52.;
 
-    let (bounds, display_id) = crate::platform::centered_window_bounds(
-        cx,
-        None,
-        size(px(win_w), px(win_h)),
-    );
+    let (bounds, display_id) =
+        crate::platform::centered_window_bounds(cx, None, size(px(win_w), px(win_h)));
     let opts = PopupWindowOpts {
         bounds,
         display_id,
