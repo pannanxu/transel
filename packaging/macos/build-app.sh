@@ -49,37 +49,102 @@ cp "${ICNS}" "${PKG_ROOT}/Contents/Resources/AppIcon.icns"
 cp "${ICNS}" "${PKG_ROOT}/Contents/Resources/icon.icns"
 
 echo "==> ad-hoc 签名（避免系统判定为损坏）"
-codesign --force --deep --sign - "${PKG_ROOT}"
 xattr -cr "${PKG_ROOT}"
+codesign --force --deep --sign - "${PKG_ROOT}"
 
 DMG_STAGE="${ROOT}/dist/dmg-root"
 rm -rf "${DMG_STAGE}"
 mkdir -p "${DMG_STAGE}"
+touch "${ROOT}/dist/.metadata_never_index"
+touch "${DMG_STAGE}/.metadata_never_index"
 ditto "${PKG_ROOT}" "${DMG_STAGE}/Transel.app"
 ln -s /Applications "${DMG_STAGE}/Applications"
 cp "${ICNS}" "${DMG_STAGE}/.VolumeIcon.icns"
-codesign --force --deep --sign - "${DMG_STAGE}/Transel.app"
+
+# 同步文件并清理残留挂载，避免 Resource busy 争用
+sync
+hdiutil detach "/Volumes/Transel" -force >/dev/null 2>&1 || true
 
 DMG_NAME="Transel-${VERSION}-${TARGET}.dmg"
 RW_DMG="${ROOT}/dist/.transel-rw.dmg"
 rm -f "${RW_DMG}" "${ROOT}/dist/${DMG_NAME}"
-echo "==> 创建 ${DMG_NAME}"
-hdiutil create -volname "Transel" \
-    -srcfolder "${DMG_STAGE}" \
-    -ov -format UDRW \
-    "${RW_DMG}" >/dev/null
-MOUNT=$(hdiutil attach -readwrite -nobrowse -noverify "${RW_DMG}" \
-    | sed -n 's/.*\(\/Volumes\/[^[:space:]]*\)$/\1/p' | tail -1)
-if [[ -n "${MOUNT}" && -d "${MOUNT}" ]]; then
-    if command -v SetFile >/dev/null 2>&1; then
-        SetFile -c icnC "${MOUNT}/.VolumeIcon.icns" || true
-        SetFile -a C "${MOUNT}" || true
-        SetFile -a V "${MOUNT}/.VolumeIcon.icns" || true
+
+MOUNT_DIR=""
+detach_mount() {
+    local target="$1"
+    for i in {1..5}; do
+        if hdiutil detach "${target}" -force >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    diskutil unmount force "${target}" >/dev/null 2>&1 || true
+}
+
+cleanup() {
+    if [[ -n "${MOUNT_DIR:-}" && -d "${MOUNT_DIR}" ]]; then
+        detach_mount "${MOUNT_DIR}"
+        rm -rf "${MOUNT_DIR}"
     fi
-    hdiutil detach "${MOUNT}" >/dev/null
+    rm -f "${RW_DMG:-}"
+    rm -rf "${DMG_STAGE:-}"
+}
+trap cleanup EXIT
+
+echo "==> 创建 ${DMG_NAME}"
+CREATE_OK=0
+for i in {1..5}; do
+    if hdiutil create -volname "Transel" \
+        -srcfolder "${DMG_STAGE}" \
+        -ov -format UDRW \
+        -fs HFS+ \
+        "${RW_DMG}" >/dev/null 2>&1; then
+        CREATE_OK=1
+        break
+    fi
+    echo "hdiutil create 繁忙，等待重试 ($i/5)..."
+    sleep $((i * 2))
+done
+
+if [[ "${CREATE_OK}" -ne 1 ]]; then
+    echo "hdiutil create 重试失败，执行最后一次并输出日志：" >&2
+    hdiutil create -volname "Transel" \
+        -srcfolder "${DMG_STAGE}" \
+        -ov -format UDRW \
+        -fs HFS+ \
+        "${RW_DMG}"
 fi
-hdiutil convert "${RW_DMG}" -format UDZO -imagekey zlib-level=9 \
-    -o "${ROOT}/dist/${DMG_NAME}" >/dev/null
+
+MOUNT_DIR="$(mktemp -d /tmp/transel-dmg-mount.XXXXXX)"
+if hdiutil attach -readwrite -nobrowse -noverify -noautoopen -mountpoint "${MOUNT_DIR}" "${RW_DMG}" >/dev/null 2>&1; then
+    if command -v SetFile >/dev/null 2>&1; then
+        SetFile -c icnC "${MOUNT_DIR}/.VolumeIcon.icns" || true
+        SetFile -a C "${MOUNT_DIR}" || true
+        SetFile -a V "${MOUNT_DIR}/.VolumeIcon.icns" || true
+    fi
+    sync
+    detach_mount "${MOUNT_DIR}"
+    rm -rf "${MOUNT_DIR}"
+    MOUNT_DIR=""
+fi
+
+CONVERT_OK=0
+for i in {1..5}; do
+    if hdiutil convert "${RW_DMG}" -format UDZO -imagekey zlib-level=9 \
+        -ov -o "${ROOT}/dist/${DMG_NAME}" >/dev/null 2>&1; then
+        CONVERT_OK=1
+        break
+    fi
+    echo "hdiutil convert 繁忙，等待重试 ($i/5)..."
+    sleep $((i * 2))
+done
+
+if [[ "${CONVERT_OK}" -ne 1 ]]; then
+    echo "hdiutil convert 重试失败，执行最后一次并输出日志：" >&2
+    hdiutil convert "${RW_DMG}" -format UDZO -imagekey zlib-level=9 \
+        -ov -o "${ROOT}/dist/${DMG_NAME}"
+fi
+
 rm -f "${RW_DMG}"
 rm -rf "${DMG_STAGE}"
 
