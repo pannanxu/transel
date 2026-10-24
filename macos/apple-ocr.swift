@@ -20,6 +20,7 @@ func main() {
 
     let imagePath = args[1]
     let isBoxes = args.contains("--boxes")
+    let isQr = args.contains("--qr")
     var langHint: String? = nil
     if let langIdx = args.firstIndex(of: "--lang"), langIdx + 1 < args.count {
         langHint = args[langIdx + 1]
@@ -31,6 +32,26 @@ func main() {
           let cgImage = bitmapImage.cgImage else {
         fputs("Failed to load image: \(imagePath)\n", stderr)
         exit(2)
+    }
+
+    if isQr {
+        let request = VNDetectBarcodesRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            fputs("Perform error: \(error.localizedDescription)\n", stderr)
+            exit(3)
+        }
+        guard let results = request.results else { exit(0) }
+        var barcodes: [String] = []
+        for r in results {
+            if let p = r.payloadStringValue, !p.isEmpty {
+                barcodes.append(p)
+            }
+        }
+        print(barcodes.joined(separator: "\n"))
+        return
     }
 
     var items: [BoxItem] = []

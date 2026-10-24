@@ -15,10 +15,7 @@ use crate::services::ocr::boxes::TextBox;
 use crate::services::ocr::engine::OcrEngine;
 
 #[cfg(target_os = "macos")]
-const HELPER_SRC: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/macos/apple-ocr.swift"
-));
+const HELPER_BIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/apple-ocr"));
 
 #[derive(Default)]
 pub struct AppleVisionEngine;
@@ -96,51 +93,28 @@ impl OcrEngine for AppleVisionEngine {
 }
 
 #[cfg(target_os = "macos")]
-fn ensure_helper() -> Result<PathBuf> {
+pub fn ensure_helper() -> Result<PathBuf> {
     let dir = crate::app::paths::cache_dir().join("apple-ocr");
-    let src_path = dir.join("apple-ocr.swift");
     let bin_path = dir.join("apple-ocr");
     std::fs::create_dir_all(&dir)?;
 
-    let src_changed = std::fs::read_to_string(&src_path)
-        .map(|old| old != HELPER_SRC)
-        .unwrap_or(true);
+    let need_write = if !bin_path.exists() {
+        true
+    } else {
+        let current_bytes = std::fs::read(&bin_path).unwrap_or_default();
+        current_bytes != HELPER_BIN
+    };
 
-    if src_changed {
-        std::fs::write(&src_path, HELPER_SRC)?;
-    }
-
-    let need_build = src_changed
-        || !bin_path.exists()
-        || (|| {
-            let src_m = std::fs::metadata(&src_path).ok()?.modified().ok()?;
-            let bin_m = std::fs::metadata(&bin_path).ok()?.modified().ok()?;
-            Some(bin_m < src_m)
-        })()
-        .unwrap_or(true);
-
-    if need_build {
-        log::info!("正在编译 Apple Vision OCR 助手: {}", bin_path.display());
-        let compile = Command::new("/usr/bin/swiftc")
-            .args([
-                "-O",
-                "-o",
-                bin_path.to_str().unwrap_or("apple-ocr"),
-                "-framework",
-                "Vision",
-                "-framework",
-                "AppKit",
-                src_path.to_str().unwrap_or("apple-ocr.swift"),
-            ])
-            .output()?;
-
-        if !compile.status.success() {
-            anyhow::bail!(
-                "编译 Apple Vision OCR 助手失败: {}",
-                String::from_utf8_lossy(&compile.stderr).trim()
-            );
+    if need_write {
+        if HELPER_BIN.is_empty() {
+            anyhow::bail!("Apple Vision OCR 助手未在构建时预编译");
         }
-
+        std::fs::write(&bin_path, HELPER_BIN)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&bin_path, std::fs::Permissions::from_mode(0o755));
+        }
         let _ = Command::new("/usr/bin/codesign")
             .args(["--force", "--sign", "-", "--timestamp=none"])
             .arg(&bin_path)

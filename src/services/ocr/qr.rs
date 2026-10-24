@@ -25,43 +25,16 @@ pub fn detect_payloads(image: &Path) -> Vec<String> {
 
 #[cfg(target_os = "macos")]
 fn detect_macos(image: &Path) -> anyhow::Result<Vec<String>> {
-    let path = image
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("路径非 UTF-8"))?;
-    // 一次性 Swift：VNDetectBarcodesRequest
-    let src = format!(
-        r#"
-import Foundation
-import Vision
-import ImageIO
-import CoreGraphics
-
-let path = {path:?}
-let url = URL(fileURLWithPath: path) as CFURL
-guard let src = CGImageSourceCreateWithURL(url, nil),
-      let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {{
-    fputs("load failed\n", stderr)
-    exit(2)
-}}
-let handler = VNImageRequestHandler(cgImage: cg, options: [:])
-let req = VNDetectBarcodesRequest()
-try handler.perform([req])
-guard let results = req.results else {{ exit(0) }}
-for r in results {{
-    if let p = r.payloadStringValue, !p.isEmpty {{
-        print(p)
-    }}
-}}
-"#
-    );
-    let dir = crate::app::paths::ocr_cache_dir();
-    let swift_path = dir.join("st-qr-detect.swift");
-    std::fs::write(&swift_path, &src)?;
-    let out = Command::new("/usr/bin/swift").arg(&swift_path).output()?;
+    let bin = crate::services::ocr::engines::apple_vision::ensure_helper()?;
+    let out = Command::new(&bin)
+        .arg(image)
+        .arg("--qr")
+        .output()?;
     if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
         anyhow::bail!(
-            "swift 二维码识别失败: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+            "Apple Vision 二维码识别失败: {}",
+            err.trim()
         );
     }
     let text = String::from_utf8_lossy(&out.stdout);
