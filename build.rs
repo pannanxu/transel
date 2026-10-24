@@ -73,7 +73,9 @@ fn main() {
                         cmd.args(["-target", triple]);
                     }
                 }
-                let status = cmd.status().expect("Failed to execute swiftc for apple-ocr");
+                let status = cmd
+                    .status()
+                    .expect("Failed to execute swiftc for apple-ocr");
                 if !status.success() {
                     panic!("swiftc failed to compile macos/apple-ocr.swift");
                 }

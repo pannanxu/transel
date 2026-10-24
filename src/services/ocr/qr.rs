@@ -26,16 +26,10 @@ pub fn detect_payloads(image: &Path) -> Vec<String> {
 #[cfg(target_os = "macos")]
 fn detect_macos(image: &Path) -> anyhow::Result<Vec<String>> {
     let bin = crate::services::ocr::engines::apple_vision::ensure_helper()?;
-    let out = Command::new(&bin)
-        .arg(image)
-        .arg("--qr")
-        .output()?;
+    let out = Command::new(&bin).arg(image).arg("--qr").output()?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        anyhow::bail!(
-            "Apple Vision 二维码识别失败: {}",
-            err.trim()
-        );
+        anyhow::bail!("Apple Vision 二维码识别失败: {}", err.trim());
     }
     let text = String::from_utf8_lossy(&out.stdout);
     let mut payloads: Vec<String> = text
