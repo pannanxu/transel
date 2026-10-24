@@ -56,7 +56,7 @@ $ErrorActionPreference = 'Stop'
 $out = '{escaped}'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-Add-Type @"
+Add-Type -ReferencedAssemblies 'System.Windows.Forms', 'System.Drawing' -TypeDefinition @"
 using System;
 using System.Drawing;
 using System.Windows.Forms;
@@ -107,7 +107,7 @@ public class TranselSnip : Form {{
       var inner = new Rectangle(local.X + 1, local.Y + 1, Math.Max(0, local.Width - 2), Math.Max(0, local.Height - 2));
       e.Graphics.DrawRectangle(pWhite, inner);
     }}
-    string badge = $"{rect.Width} x {rect.Height}";
+    string badge = rect.Width + " x " + rect.Height;
     using (var font = new Font("Segoe UI", 9, FontStyle.Bold))
     using (var bgBrush = new SolidBrush(Color.FromArgb(220, 20, 20, 20)))
     using (var textBrush = new SolidBrush(Color.White)) {{
@@ -128,10 +128,24 @@ if ($r -ne [System.Windows.Forms.DialogResult]::OK) {{ exit 1 }}
     );
     let ps1 = paths::ocr_cache_dir().join("st-snip.ps1");
     std::fs::write(&ps1, script)?;
-    let out = Command::new("powershell")
-        .args(["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(&ps1)
-        .output()?;
+    let mut cmd = Command::new("powershell");
+    cmd.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-STA",
+        "-WindowStyle",
+        "Hidden",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+    ])
+    .arg(&ps1);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let out = cmd.output()?;
     if !out.status.success() || !path.exists() {
         let err = String::from_utf8_lossy(&out.stderr);
         anyhow::bail!(

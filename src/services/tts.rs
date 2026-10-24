@@ -130,12 +130,19 @@ $s.Dispose()
         cmd.args([
             "-NoProfile",
             "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
             "-Command",
             ps,
             text,
             &rate.to_string(),
             voice,
         ]);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
         let out = cmd.output()?;
         if !out.status.success() {
             anyhow::bail!(
@@ -407,9 +414,22 @@ if ($path.ToLower().EndsWith('.wav')) {{
 }}
 "#
         );
-        let out = Command::new("powershell")
-            .args(["-NoProfile", "-STA", "-Command", &ps])
-            .output()?;
+        let mut cmd = Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-STA",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            &ps,
+        ]);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+        let out = cmd.output()?;
         if !out.status.success() {
             anyhow::bail!("Windows 播放 TTS 失败");
         }
