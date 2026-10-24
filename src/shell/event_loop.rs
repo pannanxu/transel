@@ -12,14 +12,8 @@ use crate::features;
 use crate::services::input;
 use crate::services::tts;
 use crate::shell::request;
+use crate::platform::mouse_location;
 use crate::split;
-
-fn mouse_location() -> Option<(f32, f32)> {
-    use enigo::{Enigo, Mouse, Settings};
-    let enigo = Enigo::new(&Settings::default()).ok()?;
-    let (x, y) = enigo.location().ok()?;
-    Some((x as f32, y as f32))
-}
 
 pub fn spawn(cx: &mut App) {
     cx.spawn(async move |cx| {

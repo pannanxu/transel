@@ -20,13 +20,6 @@ use crate::split;
 static OCR_VIEW: Lazy<Mutex<Option<Entity<OcrView>>>> = Lazy::new(|| Mutex::new(None));
 static OCR_CONTINUOUS_BUF: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
-fn mouse_location() -> Option<(f32, f32)> {
-    use enigo::{Enigo, Mouse, Settings};
-    let enigo = Enigo::new(&Settings::default()).ok()?;
-    let (x, y) = enigo.location().ok()?;
-    Some((x as f32, y as f32))
-}
-
 /// 截图 → OCR → 翻译弹窗。
 pub fn trigger_ocr(cx: &mut App) {
     cx.spawn(async move |cx| {
@@ -43,7 +36,7 @@ pub fn trigger_ocr(cx: &mut App) {
         };
         let mouse = cx
             .background_executor()
-            .spawn(async { mouse_location() })
+            .spawn(async { crate::platform::mouse_location() })
             .await;
         cx.update(|cx| popup::show(cx, Mode::recognizing(), None, mouse, HistoryOrigin::Ocr));
 
@@ -129,7 +122,7 @@ pub fn trigger_ocr_only(cx: &mut App, silent: bool) {
         let cancel = if silent {
             let mouse = cx
                 .background_executor()
-                .spawn(async { mouse_location() })
+                .spawn(async { crate::platform::mouse_location() })
                 .await;
             Some(cx.update(|cx| crate::features::silent_hud::begin(cx, "识别中…", mouse)))
         } else {
@@ -333,12 +326,14 @@ pub fn open_window(cx: &mut App, text: String, loading: bool) {
     let translate_q = cx.global::<AppState>().pending.ocr_translate.clone();
     let continuous_q = cx.global::<AppState>().pending.ocr_continuous.clone();
 
+    let (bounds, display_id) = crate::platform::centered_window_bounds(
+        cx,
+        None,
+        size(px(OCR_SIZE.0), px(OCR_SIZE.1)),
+    );
     let opts = PopupWindowOpts {
-        bounds: Bounds::new(
-            point(px(200.), px(140.)),
-            size(px(OCR_SIZE.0), px(OCR_SIZE.1)),
-        ),
-        display_id: None,
+        bounds,
+        display_id,
         focus: true,
         movable: true,
         resizable: true,

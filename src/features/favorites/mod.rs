@@ -11,7 +11,7 @@ use std::sync::Arc;
 use gpui_kit::*;
 
 use crate::app::state::AppState;
-use crate::shared::tokens::{FAVORITES_SIZE, UTILITY_ORIGIN_X, UTILITY_ORIGIN_Y};
+use crate::shared::tokens::FAVORITES_SIZE;
 use crate::shell::window::open_document_window;
 
 pub fn open(cx: &mut App) {
@@ -25,8 +25,9 @@ pub fn open(cx: &mut App) {
     let fav_for_export = favorites.clone();
     let fav_for_remove = favorites.clone();
 
-    let bounds = Bounds::new(
-        point(px(UTILITY_ORIGIN_X), px(UTILITY_ORIGIN_Y)),
+    let (bounds, display_id) = crate::platform::centered_window_bounds(
+        cx,
+        None,
         size(px(FAVORITES_SIZE.0), px(FAVORITES_SIZE.1)),
     );
     let actions = FavoritesActions {
@@ -50,7 +51,7 @@ pub fn open(cx: &mut App) {
             }
         }),
     };
-    match open_document_window(cx, "收藏", bounds, move |window, cx| {
+    match open_document_window(cx, "收藏", bounds, display_id, move |window, cx| {
         cx.new(|cx| FavoritesView::new(entries.clone(), actions, window, cx))
     }) {
         Ok(handle) => {

@@ -17,61 +17,8 @@ use view::SilentHudView;
 
 const HUD_W: f32 = 48.;
 const HUD_H: f32 = 26.;
-const MOUSE_OFFSET_X: f32 = 12.;
-const MOUSE_OFFSET_Y: f32 = 12.;
 
 static CANCEL: Lazy<Mutex<Option<Arc<AtomicBool>>>> = Lazy::new(|| Mutex::new(None));
-
-fn mouse_location() -> Option<(f32, f32)> {
-    use enigo::{Enigo, Mouse, Settings};
-    let enigo = Enigo::new(&Settings::default()).ok()?;
-    let (x, y) = enigo.location().ok()?;
-    Some((x as f32, y as f32))
-}
-
-fn hud_bounds(cx: &App, mouse: Option<(f32, f32)>) -> (Bounds<Pixels>, Option<DisplayId>) {
-    let size = size(px(HUD_W), px(HUD_H));
-    let (w, h) = (f32::from(size.width), f32::from(size.height));
-    let displays = cx.displays();
-    let primary = cx.primary_display();
-
-    let display = if let Some((mx, my)) = mouse {
-        let p = point(px(mx), px(my));
-        displays
-            .iter()
-            .find(|d| d.bounds().contains(&p))
-            .cloned()
-            .or(primary)
-    } else {
-        primary
-    };
-
-    let id = display.as_ref().map(|d| d.id());
-    let screen = display.as_ref().map(|d| d.bounds()).unwrap_or_default();
-    let (left, top) = (f32::from(screen.origin.x), f32::from(screen.origin.y));
-    let (sw, sh) = (f32::from(screen.size.width), f32::from(screen.size.height));
-    let (right, bottom) = (left + sw, top + sh);
-
-    let (mut x, mut y) = if let Some((mx, my)) = mouse {
-        (mx + MOUSE_OFFSET_X, my + MOUSE_OFFSET_Y)
-    } else {
-        (left + (sw - w) / 2., top + (sh * 0.18).max(24.))
-    };
-    if x + w > right {
-        x = right - w - 8.;
-    }
-    if y + h > bottom {
-        y = bottom - h - 8.;
-    }
-    if x < left {
-        x = left + 8.;
-    }
-    if y < top {
-        y = top + 8.;
-    }
-
-    (Bounds::new(point(px(x), px(y)), size), id)
-}
 
 /// 关闭 HUD（不置取消标志）。
 pub fn finish(cx: &mut App) {
@@ -128,8 +75,8 @@ pub fn begin(
     let cancel = Arc::new(AtomicBool::new(false));
     *CANCEL.lock() = Some(cancel.clone());
 
-    let mouse = mouse.or_else(mouse_location);
-    let (bounds, display_id) = hud_bounds(cx, mouse);
+    let (bounds, display_id) =
+        crate::platform::hud_window_bounds(cx, mouse, size(px(HUD_W), px(HUD_H)));
     let label = label.into();
     let cancel_for_view = cancel.clone();
 

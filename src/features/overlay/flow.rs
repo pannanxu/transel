@@ -19,13 +19,6 @@ use crate::split;
 
 static OVERLAY_VIEW: Lazy<Mutex<Option<Entity<OverlayView>>>> = Lazy::new(|| Mutex::new(None));
 
-fn mouse_location() -> Option<(f32, f32)> {
-    use enigo::{Enigo, Mouse, Settings};
-    let enigo = Enigo::new(&Settings::default()).ok()?;
-    let (x, y) = enigo.location().ok()?;
-    Some((x as f32, y as f32))
-}
-
 pub fn trigger_overlay(cx: &mut App) {
     cx.spawn(async move |cx| {
         let path = cx
@@ -53,7 +46,7 @@ pub fn trigger_overlay(cx: &mut App) {
             let smart = cx.update(|cx| cx.global::<AppState>().config().ocr_smart_paragraph);
             let mouse = cx
                 .background_executor()
-                .spawn(async { mouse_location() })
+                .spawn(async { crate::platform::mouse_location() })
                 .await;
             cx.update(|cx| popup::show(cx, Mode::recognizing(), None, mouse, HistoryOrigin::Ocr));
             let result = cx
@@ -218,9 +211,14 @@ pub fn open_window(
     let win_w = (image_w * scale).clamp(360., 960.);
     let win_h = (image_h * scale).clamp(280., 760.) + 52.;
 
+    let (bounds, display_id) = crate::platform::centered_window_bounds(
+        cx,
+        None,
+        size(px(win_w), px(win_h)),
+    );
     let opts = PopupWindowOpts {
-        bounds: Bounds::new(point(px(160.), px(100.)), size(px(win_w), px(win_h))),
-        display_id: None,
+        bounds,
+        display_id,
         focus: true,
         movable: true,
         resizable: true,

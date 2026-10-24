@@ -11,7 +11,7 @@ use std::sync::Arc;
 use gpui_kit::*;
 
 use crate::app::state::AppState;
-use crate::shared::tokens::{HISTORY_SIZE, UTILITY_ORIGIN_X, UTILITY_ORIGIN_Y};
+use crate::shared::tokens::HISTORY_SIZE;
 use crate::shell::window::open_document_window;
 
 pub fn open(cx: &mut App) {
@@ -22,8 +22,9 @@ pub fn open(cx: &mut App) {
     let history = cx.global::<AppState>().history.clone();
     let entries = history.list().unwrap_or_default();
     let hist_for_clear = history.clone();
-    let bounds = Bounds::new(
-        point(px(UTILITY_ORIGIN_X), px(UTILITY_ORIGIN_Y)),
+    let (bounds, display_id) = crate::platform::centered_window_bounds(
+        cx,
+        None,
         size(px(HISTORY_SIZE.0), px(HISTORY_SIZE.1)),
     );
     let actions = HistoryActions {
@@ -32,7 +33,7 @@ pub fn open(cx: &mut App) {
         }),
         ..HistoryActions::default()
     };
-    match open_document_window(cx, "历史", bounds, move |window, cx| {
+    match open_document_window(cx, "历史", bounds, display_id, move |window, cx| {
         cx.new(|cx| HistoryView::new(entries, actions, window, cx))
     }) {
         Ok(handle) => {

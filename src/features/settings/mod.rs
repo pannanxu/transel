@@ -11,7 +11,7 @@ use std::sync::Arc;
 use gpui_kit::*;
 
 use crate::app::state::AppState;
-use crate::shared::tokens::{SETTINGS_SIZE, UTILITY_ORIGIN_X, UTILITY_ORIGIN_Y};
+use crate::shared::tokens::SETTINGS_SIZE;
 use crate::shell::window::open_document_window;
 
 pub fn open(cx: &mut App) {
@@ -46,11 +46,12 @@ pub fn open(cx: &mut App) {
         }),
         ..SettingsActions::default()
     };
-    let bounds = Bounds::new(
-        point(px(UTILITY_ORIGIN_X), px(UTILITY_ORIGIN_Y)),
+    let (bounds, display_id) = crate::platform::centered_window_bounds(
+        cx,
+        None,
         size(px(SETTINGS_SIZE.0), px(SETTINGS_SIZE.1)),
     );
-    match open_document_window(cx, "设置", bounds, move |window, cx| {
+    match open_document_window(cx, "设置", bounds, display_id, move |window, cx| {
         cx.new(|cx| SettingsView::new(cfg, actions, window, cx))
     }) {
         Ok(handle) => {

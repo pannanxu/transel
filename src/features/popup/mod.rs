@@ -110,7 +110,7 @@ pub fn show(
         cx,
         &mode,
         &state.config().target_lang,
-        if follow_mouse { mouse } else { None },
+        mouse,
     );
     let (bounds, display_id) = popup_bounds(cx, mouse, size, follow_mouse);
     let target_lang = state.config().target_lang.clone();

@@ -15,13 +15,6 @@ use crate::services::ocr;
 pub(crate) static SCREENSHOT_WINDOW: Lazy<Mutex<Option<AnyWindowHandle>>> =
     Lazy::new(|| Mutex::new(None));
 
-fn mouse_location() -> Option<(f32, f32)> {
-    use enigo::{Enigo, Mouse, Settings};
-    let enigo = Enigo::new(&Settings::default()).ok()?;
-    let (x, y) = enigo.location().ok()?;
-    Some((x as f32, y as f32))
-}
-
 pub fn trigger_screenshot(cx: &mut App) {
     close_window(cx);
 
@@ -42,7 +35,7 @@ pub fn trigger_screenshot(cx: &mut App) {
 
         let mouse = cx
             .background_executor()
-            .spawn(async { mouse_location() })
+            .spawn(async { crate::platform::mouse_location() })
             .await;
 
         cx.update(|cx| {
@@ -67,37 +60,12 @@ pub fn trigger_overlay(cx: &mut App) {
 fn open_screenshot_editor(cx: &mut App, image_path: PathBuf, mouse: Option<(f32, f32)>) {
     let (img_w, img_h) = image::image_dimensions(&image_path).unwrap_or((800, 600));
 
-    let displays = cx.displays();
-    let primary = cx.primary_display();
-
-    let display = if let Some((mx, my)) = mouse {
-        let p = point(px(mx), px(my));
-        displays
-            .iter()
-            .find(|d| d.bounds().contains(&p))
-            .cloned()
-            .or(primary)
-    } else {
-        primary
-    };
-
-    let display = match display {
-        Some(d) => d,
-        None => {
-            log::error!("未找到可用的显示器");
-            return;
-        }
-    };
-
-    let disp_bounds = display.bounds();
-    let display_id = display.id();
+    let (_display, screen_info) = crate::platform::find_display_for_mouse(cx, mouse);
+    let (disp_w, disp_h) = screen_info.size;
 
     let est_scale = 2.0f32;
     let log_w = img_w as f32 / est_scale;
     let log_h = img_h as f32 / est_scale;
-
-    let disp_w = f32::from(disp_bounds.size.width);
-    let disp_h = f32::from(disp_bounds.size.height);
 
     let max_w = (disp_w - 60.0).max(800.0);
     let max_h = (disp_h - 80.0).max(520.0);
@@ -109,13 +77,8 @@ fn open_screenshot_editor(cx: &mut App, image_path: PathBuf, mouse: Option<(f32,
     let win_w = ideal_w.clamp(800.0, max_w);
     let win_h = ideal_h.clamp(520.0, max_h);
 
-    let win_x = f32::from(disp_bounds.origin.x) + (disp_w - win_w) / 2.0;
-    let win_y = f32::from(disp_bounds.origin.y) + (disp_h - win_h) / 2.0;
-
-    let bounds = Bounds::new(
-        point(px(win_x.max(10.0)), px(win_y.max(10.0))),
-        size(px(win_w), px(win_h)),
-    );
+    let (bounds, display_id) =
+        crate::platform::centered_window_bounds(cx, mouse, size(px(win_w), px(win_h)));
 
     let options = WindowOptions {
         titlebar: None,
@@ -125,7 +88,7 @@ fn open_screenshot_editor(cx: &mut App, image_path: PathBuf, mouse: Option<(f32,
         is_movable: true,
         is_resizable: true,
         is_minimizable: false,
-        display_id: Some(display_id),
+        display_id,
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_background: WindowBackgroundAppearance::Transparent,
         app_id: Some("dev.transel".into()),

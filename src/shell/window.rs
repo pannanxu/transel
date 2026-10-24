@@ -65,6 +65,7 @@ pub fn open_document_window<V: 'static + Render>(
     cx: &mut App,
     title: impl Into<SharedString>,
     bounds: Bounds<Pixels>,
+    display_id: Option<DisplayId>,
     build: impl FnOnce(&mut Window, &mut App) -> Entity<V> + 'static,
 ) -> Result<AnyWindowHandle, anyhow::Error> {
     let options = WindowOptions {
@@ -79,6 +80,7 @@ pub fn open_document_window<V: 'static + Render>(
         is_movable: true,
         is_resizable: true,
         is_minimizable: true,
+        display_id,
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_background: WindowBackgroundAppearance::Opaque,
         window_min_size: Some(size(px(640.), px(480.))),

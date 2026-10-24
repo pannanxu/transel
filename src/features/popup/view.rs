@@ -240,7 +240,7 @@ impl TranslatePopup {
         if self.height_capped {
             return;
         }
-        let max_h = screen_limits_from_app(cx, None).max_window_h;
+        let max_h = screen_limits_for_window(window, cx).max_window_h;
         let want = (card_h + SHADOW_MARGIN * 2.).max(96.);
         let h = want.min(max_h);
         let cur = window.bounds().size;
@@ -713,27 +713,20 @@ struct ScreenLimits {
 }
 
 fn screen_limits_from_app(cx: &App, mouse: Option<(f32, f32)>) -> ScreenLimits {
-    let displays = cx.displays();
-    let primary = cx.primary_display();
-    let display = match mouse {
-        Some((mx, my)) => {
-            let p = point(px(mx), px(my));
-            displays
-                .iter()
-                .find(|d| d.bounds().contains(&p))
-                .cloned()
-                .or(primary)
-        }
-        None => primary,
-    };
-    let (sw, sh) = display
-        .as_ref()
-        .map(|d| {
-            let b = d.bounds();
-            (f32::from(b.size.width), f32::from(b.size.height))
-        })
-        .unwrap_or((1280., 800.));
+    let (_display, screen_info) = crate::platform::find_display_for_mouse(cx, mouse);
+    let (sw, sh) = screen_info.size;
     // 宽度：最多占屏宽 70%，且不超过 MAX_W；高度：上下都留空，避免贴底。
+    let max_content_w = (sw * 0.7 - SHADOW_MARGIN * 2.).clamp(MIN_W, MAX_W);
+    let max_window_h = popup_max_h(sh);
+    ScreenLimits {
+        max_content_w,
+        max_window_h,
+    }
+}
+
+fn screen_limits_for_window(window: &Window, cx: &App) -> ScreenLimits {
+    let (_display, screen_info) = crate::platform::find_display_for_window(window, cx);
+    let (sw, sh) = screen_info.size;
     let max_content_w = (sw * 0.7 - SHADOW_MARGIN * 2.).clamp(MIN_W, MAX_W);
     let max_window_h = popup_max_h(sh);
     ScreenLimits {
@@ -1388,53 +1381,5 @@ pub fn popup_bounds(
     size: Size<Pixels>,
     follow_mouse: bool,
 ) -> (Bounds<Pixels>, Option<DisplayId>) {
-    let (w, h) = (f32::from(size.width), f32::from(size.height));
-    let displays = cx.displays();
-    let primary = cx.primary_display();
-
-    let display = if follow_mouse {
-        if let Some((mx, my)) = mouse {
-            let p = point(px(mx), px(my));
-            displays
-                .iter()
-                .find(|d| d.bounds().contains(&p))
-                .cloned()
-                .or(primary)
-        } else {
-            primary
-        }
-    } else {
-        primary
-    };
-
-    let mut id = None;
-    let screen = display.as_ref().map(|d| d.bounds()).unwrap_or_default();
-    let (left, top) = (f32::from(screen.origin.x), f32::from(screen.origin.y));
-    let (sw, sh) = (f32::from(screen.size.width), f32::from(screen.size.height));
-    let (right, bottom) = (left + sw, top + sh);
-
-    let top_gap = popup_top_gap(sh);
-    let bottom_gap = popup_bottom_gap(sh);
-    let (mut x, mut y) = if follow_mouse {
-        if let Some((mx, my)) = mouse {
-            (mx + 8., my + 14.)
-        } else {
-            (left + (sw - w) / 2., top + top_gap)
-        }
-    } else {
-        (left + (sw - w) / 2., top + top_gap)
-    };
-
-    if let Some(d) = display {
-        id = Some(d.id());
-        if follow_mouse
-            && let Some((_mx, my)) = mouse
-            && y + h.max(220.) > bottom - bottom_gap
-        {
-            y = my - h.max(220.) - 8.;
-        }
-        x = x.min(right - w - 4.).max(left + 4.);
-        y = y.min(bottom - h - bottom_gap).max(top + top_gap);
-    }
-    (Bounds::new(point(px(x), px(y)), size), id)
+    crate::platform::popup_window_bounds(cx, mouse, size, follow_mouse)
 }
