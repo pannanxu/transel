@@ -1,6 +1,6 @@
 [package]
 name = "transel"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 description = "Transel — 跨平台划词翻译工具 (GPUI + gpui-kit)"
 license = "MIT"
