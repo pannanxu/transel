@@ -184,6 +184,10 @@ impl ScreenshotView {
 
     pub fn close(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
         *super::SCREENSHOT_WINDOW.lock() = None;
+        self.base_image = None;
+        self.elements.clear();
+        self.undo_stack.clear();
+        self.current_element = None;
         if self.image_path.exists() {
             let _ = std::fs::remove_file(&self.image_path);
         }

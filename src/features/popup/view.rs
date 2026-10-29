@@ -621,7 +621,20 @@ impl TranslatePopup {
             self.was_split = ctx_inner.source != ctx_inner.prepared;
         }
         self.apply_mode(mode, cx);
-        crate::platform::apply_popup_pin(window, true);
+        crate::platform::apply_popup_pin(window, self.pinned);
+        let limits = screen_limits_for_window(window, cx);
+        let text: &str = match &self.mode {
+            Mode::Input { text } => text,
+            Mode::Batch(b) => &b.prepared,
+            Mode::Loading(msg) | Mode::Error(msg) => msg,
+            Mode::NoPermission => PERMISSION_TEXT,
+        };
+        let w = estimate_content_width(&[text], limits);
+        let cur = window.bounds().size;
+        let target_w = px(w + SHADOW_MARGIN * 2.);
+        if (f32::from(cur.width) - f32::from(target_w)).abs() > 4. {
+            self.pending_resize = Some(size(target_w, cur.height));
+        }
         cx.notify();
     }
 }

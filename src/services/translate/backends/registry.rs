@@ -109,9 +109,11 @@ fn openai_compat_builder(e: &BackendEntry) -> Option<Arc<dyn Translator>> {
     } else {
         e.display_name.clone()
     };
-    // 流式翻译可能较慢，单独给更长超时
+    // 流式翻译可能较慢，单独给更长超时，不保留空闲连接池
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(90)))
+        .max_idle_connections(0)
+        .max_idle_connections_per_host(0)
         .build()
         .into();
     let auth = e

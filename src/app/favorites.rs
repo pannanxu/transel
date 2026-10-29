@@ -65,7 +65,6 @@ impl FavoriteEntry {
 pub struct FavoritesStore {
     file: PMutex<File>,
     path: PathBuf,
-    cache: PMutex<Option<Vec<FavoriteEntry>>>,
 }
 
 impl FavoritesStore {
@@ -83,7 +82,6 @@ impl FavoritesStore {
         Ok(Self {
             file: PMutex::new(file),
             path: path.to_path_buf(),
-            cache: PMutex::new(None),
         })
     }
 
@@ -100,14 +98,10 @@ impl FavoritesStore {
         let mut f = self.file.lock();
         writeln!(f, "{s}")?;
         f.flush()?;
-        *self.cache.lock() = None;
         Ok(())
     }
 
     pub fn list(&self) -> Result<Vec<FavoriteEntry>> {
-        if let Some(c) = self.cache.lock().clone() {
-            return Ok(c);
-        }
         let file = File::open(&self.path)?;
         let reader = BufReader::new(file);
         let mut out = Vec::new();
@@ -119,7 +113,6 @@ impl FavoritesStore {
                 out.push(e);
             }
         }
-        *self.cache.lock() = Some(out.clone());
         Ok(out)
     }
 
@@ -139,7 +132,6 @@ impl FavoritesStore {
             .append(true)
             .open(&self.path)?;
         *self.file.lock() = file;
-        *self.cache.lock() = Some(kept);
         Ok(())
     }
 
@@ -147,7 +139,6 @@ impl FavoritesStore {
         let mut f = self.file.lock();
         f.set_len(0)?;
         f.flush()?;
-        *self.cache.lock() = Some(Vec::new());
         Ok(())
     }
 

@@ -90,8 +90,6 @@ pub fn clock_label(ts: DateTime<Utc>) -> String {
 pub struct HistoryStore {
     file: PMutex<File>,
     path: std::path::PathBuf,
-    /// 内存缓存最近的查询结果；每次 append 失效
-    cache: PMutex<Option<Vec<HistoryEntry>>>,
     /// 最多保留多少条
     limit: usize,
 }
@@ -111,7 +109,6 @@ impl HistoryStore {
         Ok(Self {
             file: PMutex::new(file),
             path: path.to_path_buf(),
-            cache: PMutex::new(None),
             limit,
         })
     }
@@ -125,7 +122,6 @@ impl HistoryStore {
         let mut f = self.file.lock();
         writeln!(f, "{s}")?;
         f.flush()?;
-        *self.cache.lock() = None;
         if self.limit > 0 {
             self.trim_locked(&f)?;
         }
@@ -157,9 +153,6 @@ impl HistoryStore {
 
     /// 读取全部条目（最新在最后）。
     pub fn list(&self) -> Result<Vec<HistoryEntry>> {
-        if let Some(c) = self.cache.lock().clone() {
-            return Ok(c);
-        }
         let file = File::open(&self.path)?;
         let reader = BufReader::new(file);
         let mut out = Vec::new();
@@ -171,7 +164,6 @@ impl HistoryStore {
                 out.push(e);
             }
         }
-        *self.cache.lock() = Some(out.clone());
         Ok(out)
     }
 
@@ -203,7 +195,6 @@ impl HistoryStore {
         let mut f = self.file.lock();
         f.set_len(0)?;
         f.flush()?;
-        *self.cache.lock() = Some(Vec::new());
         Ok(())
     }
 

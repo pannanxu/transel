@@ -25,6 +25,21 @@ impl AppleVisionEngine {
         Arc::new(Self)
     }
 
+    /// 在后台静默预热 Apple Vision 引擎，避免用户首次截图时出现 ANE 模型冷启动编译等待。
+    pub fn warmup() {
+        #[cfg(target_os = "macos")]
+        {
+            std::thread::Builder::new()
+                .name("apple-vision-warmup".to_string())
+                .spawn(|| {
+                    if let Ok(bin) = ensure_helper() {
+                        let _ = Command::new(&bin).arg("--warmup").output();
+                    }
+                })
+                .ok();
+        }
+    }
+
     /// 识别图片中的文本并返回带归一化坐标的边界框（供原图翻译 / overlay 使用）
     pub fn recognize_boxes(image: &Path) -> Result<Vec<TextBox>> {
         #[cfg(not(target_os = "macos"))]

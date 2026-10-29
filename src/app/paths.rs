@@ -48,6 +48,13 @@ pub fn favorites_file() -> PathBuf {
     cache_dir().join("favorites.jsonl")
 }
 
+/// 单词词典磁盘缓存目录。
+pub fn dict_cache_dir() -> PathBuf {
+    let dir = cache_dir().join("dict");
+    ensure(&dir);
+    dir
+}
+
 /// 临时 OCR 缓存目录。
 pub fn ocr_cache_dir() -> PathBuf {
     let dir = cache_dir().join("ocr");

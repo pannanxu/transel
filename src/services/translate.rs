@@ -427,10 +427,12 @@ fn run_streaming(
     }
 }
 
-// 给后端用的工具
+// 给后端用的工具：不保留空闲连接池，使用完立即释放
 pub(crate) fn ureq_agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(20)))
+        .max_idle_connections(0)
+        .max_idle_connections_per_host(0)
         .build()
         .into()
 }

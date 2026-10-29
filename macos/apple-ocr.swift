@@ -105,7 +105,9 @@ func tryRecognize(
         let filtered = supported.isEmpty ? candidates : candidates.filter { supported.contains($0) }
         request.recognitionLanguages = filtered.isEmpty ? ["en-US"] : filtered
     }
-    request.usesLanguageCorrection = true
+    // 禁用语言自动纠错：屏幕文字识别包含代码标识符、缩写、URL 及中英混排，
+    // 开启语言纠错不仅极慢且会破坏技术文本，关闭后冷启动与推理速度大幅提升。
+    request.usesLanguageCorrection = false
 
     let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
     do {
@@ -145,8 +147,29 @@ func executeTextRecognition(cgImage: CGImage, langHint: String?) -> [BoxItem]? {
 
 func main() {
     let args = CommandLine.arguments
+
+    if args.contains("--warmup") {
+        // 创建 64x64 内存位图静默触发 ANE 模型预编译，避免用户首次截图时卡顿
+        let width = 64
+        let height = 64
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        var rawData = [UInt8](repeating: 255, count: width * height * 4)
+        if let context = CGContext(
+            data: &rawData,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ), let cgImage = context.makeImage() {
+            let _ = executeTextRecognition(cgImage: cgImage, langHint: nil)
+        }
+        exit(0)
+    }
+
     guard args.count > 1 else {
-        fputs("Usage: apple-ocr <image-path> [--boxes] [--lang <hint>]\n", stderr)
+        fputs("Usage: apple-ocr <image-path> [--boxes] [--lang <hint>] [--warmup]\n", stderr)
         exit(1)
     }
 

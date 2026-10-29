@@ -7,5 +7,9 @@
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    std::panic::set_hook(Box::new(|info| {
+        log::error!("CRITICAL PANIC: {info}");
+        eprintln!("CRITICAL PANIC: {info}");
+    }));
     transel::shell::run();
 }

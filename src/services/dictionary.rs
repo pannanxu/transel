@@ -2,38 +2,37 @@
 //!
 //! - 命中条件：输入只含英文字母 + 空格 + 连字符，长度 < 50，**不**经过标识符拆词。
 //! - 失败不报错，返回 `None`（UI 退化为普通翻译）。
-//! - 缓存：简单内存 LRU（避免重复请求），可选 `moka`。
+//! - 缓存：仅本地磁盘 JSON 缓存（无内存缓存）。
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use parking_lot::RwLock;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
+use crate::app::paths;
 use crate::services::translate::ureq_agent;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Phonetic {
     pub text: Option<String>,
     pub audio: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Meaning {
     #[serde(rename = "partOfSpeech")]
     pub part_of_speech: String,
     pub definitions: Vec<Definition>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Definition {
     pub definition: String,
     #[serde(default)]
     pub example: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DictionaryEntry {
     pub word: String,
     #[serde(default)]
@@ -44,23 +43,12 @@ pub struct DictionaryEntry {
     pub meanings: Vec<Meaning>,
 }
 
-pub struct Dictionary {
-    cache: RwLock<HashMap<String, Arc<DictionaryEntry>>>,
-    agent: ureq::Agent,
-}
-
-impl Default for Dictionary {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+#[derive(Debug, Default, Clone)]
+pub struct Dictionary;
 
 impl Dictionary {
     pub fn new() -> Self {
-        Self {
-            cache: RwLock::new(HashMap::new()),
-            agent: ureq_agent(),
-        }
+        Self
     }
 
     /// 单 token 检测：是否可作为英语单词查询。
@@ -78,15 +66,20 @@ impl Dictionary {
 
     pub fn lookup(&self, word: &str) -> Result<Arc<DictionaryEntry>> {
         let key = word.trim().to_ascii_lowercase();
-        if let Some(hit) = self.cache.read().get(&key).cloned() {
-            return Ok(hit);
+        let cache_file =
+            paths::dict_cache_dir().join(format!("{:x}.json", md5::compute(key.as_bytes())));
+
+        if let Ok(content) = std::fs::read_to_string(&cache_file)
+            && let Ok(entry) = serde_json::from_str::<DictionaryEntry>(&content)
+        {
+            return Ok(Arc::new(entry));
         }
+
         let url = format!(
             "https://api.dictionaryapi.dev/api/v2/entries/en/{}",
             urlencoding::encode(&key)
         );
-        let v: serde_json::Value = self
-            .agent
+        let v: serde_json::Value = ureq_agent()
             .get(&url)
             .call()
             .context("请求词典 API 失败")?
@@ -100,9 +93,10 @@ impl Dictionary {
             anyhow::bail!("无词条");
         }
         let entry: DictionaryEntry = serde_json::from_value(arr[0].clone())?;
-        let arc = Arc::new(entry);
-        self.cache.write().insert(key, arc.clone());
-        Ok(arc)
+        if let Ok(json_str) = serde_json::to_string(&entry) {
+            let _ = std::fs::write(&cache_file, json_str);
+        }
+        Ok(Arc::new(entry))
     }
 
     /// 综合读音（优先 phonetic 字段，其次 phonetics 数组里第一个 text 非空）。

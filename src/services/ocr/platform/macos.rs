@@ -28,7 +28,9 @@ pub(super) fn platform_capture_region(
     Ok((img, path))
 }
 
-pub(crate) fn prewarm_snip_helper() {}
+pub(crate) fn prewarm_snip_helper() {
+    crate::services::ocr::engines::apple_vision::AppleVisionEngine::warmup();
+}
 
 pub(super) fn capture_interactive_path() -> anyhow::Result<PathBuf> {
     capture_to_file(&["-i", "-x", "-t", "png"], "region")

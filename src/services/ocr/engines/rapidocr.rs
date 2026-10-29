@@ -141,9 +141,11 @@ fn download_asset_file(
         asset.url
     );
 
-    // 15 分钟全局超时，允许大模型在慢速网络下完整下载
+    // 15 分钟全局超时，允许大模型在慢速网络下完整下载；不保留空闲连接池
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(900)))
+        .max_idle_connections(0)
+        .max_idle_connections_per_host(0)
         .build()
         .into();
 
@@ -483,7 +485,7 @@ impl RapidOcrEngine {
 
             let mut cfg = cache.config_for(active_spec).with_pipeline(pipeline);
             cfg.inference.intra_threads = resolved_threads;
-            cfg.inference.enable_cpu_mem_arena = true;
+            cfg.inference.enable_cpu_mem_arena = false;
             let ocr = match RapidOcr::from_config(cfg) {
                 Ok(ocr) => ocr,
                 Err(e) => {
@@ -505,7 +507,7 @@ impl RapidOcrEngine {
                         let mut fallback_cfg =
                             cache.config_for(fallback_spec).with_pipeline(pipeline);
                         fallback_cfg.inference.intra_threads = resolved_threads;
-                        fallback_cfg.inference.enable_cpu_mem_arena = true;
+                        fallback_cfg.inference.enable_cpu_mem_arena = false;
                         let fallback_ocr = RapidOcr::from_config(fallback_cfg)?;
                         *slot = Some(ActiveRunner {
                             model: fallback_spec.name.to_string(),

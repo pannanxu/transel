@@ -59,7 +59,12 @@ fn resolve_mode(cx: &App, mode: Mode, ctx: &Option<RequestCtx>) -> Mode {
     }
 }
 
-fn reuse_pinned(cx: &mut App, mode: Mode, ctx: Option<RequestCtx>, origin: HistoryOrigin) -> bool {
+fn try_reuse_active(
+    cx: &mut App,
+    mode: Mode,
+    ctx: Option<RequestCtx>,
+    origin: HistoryOrigin,
+) -> bool {
     let Some(view) = POPUP_VIEW.lock().clone() else {
         return false;
     };
@@ -70,10 +75,6 @@ fn reuse_pinned(cx: &mut App, mode: Mode, ctx: Option<RequestCtx>, origin: Histo
     if handle.update(cx, |_, _, _| ()).is_err() {
         *POPUP_VIEW.lock() = None;
         *cx.global_mut::<AppState>().popup.lock() = None;
-        return false;
-    }
-    let pinned = view.read(cx).pinned;
-    if !pinned {
         return false;
     }
 
@@ -100,7 +101,7 @@ pub fn show(
     origin: HistoryOrigin,
 ) {
     let mode = resolve_mode(cx, mode, &ctx);
-    if reuse_pinned(cx, mode.clone(), ctx.clone(), origin) {
+    if try_reuse_active(cx, mode.clone(), ctx.clone(), origin) {
         return;
     }
     close(cx);
