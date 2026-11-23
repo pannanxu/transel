@@ -8,6 +8,125 @@
 use gpui_kit::component::Theme;
 use gpui_kit::*;
 
+/// UI 字体：Linux 下优先跟随桌面配置的默认字体。
+///
+/// GPUI 的 `.SystemUIFont` 在 Linux 上会回退到固定的字体栈（KDE 下通常落到
+/// Noto Sans），不会读取 KDE 的“常规”字体设置。这里在首次使用时解析桌面
+/// 字体并缓存，让所有视图与系统默认字体保持一致。
+pub fn ui_font_family() -> SharedString {
+    #[cfg(target_os = "linux")]
+    {
+        static FAMILY: std::sync::OnceLock<SharedString> = std::sync::OnceLock::new();
+        FAMILY
+            .get_or_init(|| {
+                let family = linux_default_font().unwrap_or_else(|| ".SystemUIFont".to_string());
+                log::info!("UI 字体: {family}");
+                family.into()
+            })
+            .clone()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        ".SystemUIFont".into()
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_default_font() -> Option<String> {
+    kde_default_font().or_else(fontconfig_sans_font)
+}
+
+#[cfg(target_os = "linux")]
+fn is_kde() -> bool {
+    let desktop = [
+        "XDG_CURRENT_DESKTOP",
+        "XDG_SESSION_DESKTOP",
+        "DESKTOP_SESSION",
+    ]
+    .iter()
+    .filter_map(|key| std::env::var(key).ok())
+    .any(|value| {
+        value
+            .split(':')
+            .any(|part| part.eq_ignore_ascii_case("kde") || part.eq_ignore_ascii_case("plasma"))
+    });
+    desktop
+        || std::env::var("KDE_FULL_SESSION").is_ok_and(|value| value.eq_ignore_ascii_case("true"))
+}
+
+#[cfg(target_os = "linux")]
+fn kde_default_font() -> Option<String> {
+    if !is_kde() {
+        return None;
+    }
+    for tool in ["kreadconfig6", "kreadconfig5"] {
+        let Ok(out) = std::process::Command::new(tool)
+            .args([
+                "--file",
+                "kdeglobals",
+                "--group",
+                "General",
+                "--key",
+                "font",
+            ])
+            .output()
+        else {
+            continue;
+        };
+        if !out.status.success() {
+            continue;
+        }
+        let Ok(raw) = String::from_utf8(out.stdout) else {
+            continue;
+        };
+        // 形如 "HarmonyOS Sans SC,12,-1,5,500,..."
+        if let Some(family) = parse_kde_font(&raw) {
+            return Some(family);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn parse_kde_font(raw: &str) -> Option<String> {
+    let family = raw.split(',').next()?.trim();
+    (!family.is_empty()).then(|| family.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn fontconfig_sans_font() -> Option<String> {
+    let out = std::process::Command::new("fc-match")
+        .args(["-f", "%{family[0]}", "sans-serif"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let family = String::from_utf8(out.stdout).ok()?;
+    let family = family.trim();
+    (!family.is_empty()).then(|| family.to_string())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::parse_kde_font;
+
+    #[test]
+    fn parses_kde_font_family() {
+        assert_eq!(
+            parse_kde_font("HarmonyOS Sans SC,12,-1,5,500,0,0,0,0,0,0,0,0,0,0,1,Medium,0,0")
+                .as_deref(),
+            Some("HarmonyOS Sans SC")
+        );
+    }
+
+    #[test]
+    fn rejects_empty_kde_font_family() {
+        assert_eq!(parse_kde_font(",12,-1,5"), None);
+        assert_eq!(parse_kde_font("   "), None);
+    }
+}
+
 pub struct Palette {
     pub card: Hsla,
     pub border: Hsla,
@@ -134,7 +253,7 @@ pub fn apply_palette_to_theme(p: &Palette, cx: &mut App) {
         c.switch_thumb = hsla(0., 0., 1., 1.);
         c.tab = transparent_black();
         // 与弹窗圆角接近
-        theme.font_family = ".SystemUIFont".into();
+        theme.font_family = ui_font_family();
         theme.radius = px(6.);
         theme.radius_lg = px(crate::platform::CORNER_RADIUS as f32);
         theme.shadow = false;

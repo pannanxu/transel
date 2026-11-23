@@ -20,7 +20,7 @@ pub fn build(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) ->
             .py(px(3.))
             .text_size(px(11.))
             .line_height(px(16.))
-            .font_family(".SystemUIFont")
+            .font_family(crate::shared::theme::ui_font_family())
             .font_weight(FontWeight::MEDIUM)
             .bg(bg)
             .text_color(p.text)

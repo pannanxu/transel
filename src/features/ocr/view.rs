@@ -373,7 +373,7 @@ impl Render for OcrView {
                     inset: false,
                 }])
             })
-            .font_family(".SystemUIFont")
+            .font_family(crate::shared::theme::ui_font_family())
             .cursor_default()
             .child(header)
             .when_some(idle_status.filter(|_| !self.text.is_empty()), |el, s| {
