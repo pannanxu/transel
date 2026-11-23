@@ -1019,9 +1019,9 @@ impl Render for TranslatePopup {
             .bg(p.card)
             .when(SHADOW_MARGIN > 0., |el| {
                 el.shadow(vec![BoxShadow {
-                    color: p.shadow,
-                    offset: point(px(0.), px(4.)),
-                    blur_radius: px(10.),
+                    color: p.shadow.opacity(0.15),
+                    offset: point(px(0.), px(1.)),
+                    blur_radius: px(4.),
                     spread_radius: px(0.),
                     inset: false,
                 }])
