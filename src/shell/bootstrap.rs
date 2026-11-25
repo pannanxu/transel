@@ -73,6 +73,13 @@ pub fn run() {
                 KeyBinding::new("ctrl-q", crate::shared::actions::QuitApp, None),
             ]);
             crate::shared::actions::install_app_menus(cx);
+            // 翻译弹窗使用裸 Root，需要单独绑定复制键。
+            #[cfg(target_os = "linux")]
+            cx.bind_keys([KeyBinding::new(
+                "ctrl-c",
+                gpui_kit::base::input::Copy,
+                Some(crate::shell::window::POPUP_ROOT_CONTEXT),
+            )]);
             cx.on_action(|_: &crate::shared::actions::CloseWindow, cx| {
                 crate::features::screenshot::close_window(cx);
                 crate::shared::actions::close_front_window(cx);

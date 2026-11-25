@@ -19,7 +19,11 @@ use crate::app::history::HistoryOrigin;
 use crate::app::state::AppState;
 use crate::services::translate::RequestCtx;
 use crate::shared::chrome::window_background;
-use crate::shell::window::{PopupWindowOpts, open_root_window};
+use crate::shell::window::PopupWindowOpts;
+#[cfg(target_os = "linux")]
+use crate::shell::window::open_bare_window as open_popup_window;
+#[cfg(not(target_os = "linux"))]
+use crate::shell::window::open_root_window as open_popup_window;
 
 static POPUP_VIEW: Lazy<Mutex<Option<Entity<TranslatePopup>>>> = Lazy::new(|| Mutex::new(None));
 
@@ -126,7 +130,7 @@ pub fn show(
         background: window_background(),
     };
 
-    match open_root_window(cx, opts, {
+    match open_popup_window(cx, opts, {
         let ctx = ctx.clone();
         move |window, cx| {
             let view = cx.new(|cx| {
