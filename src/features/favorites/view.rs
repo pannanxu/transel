@@ -207,7 +207,7 @@ impl Render for FavoritesView {
             .size_full()
             .overflow_hidden()
             .bg(opaque_panel(window.appearance()))
-            .font_family(".SystemUIFont")
+            .font_family(crate::shared::theme::ui_font_family())
             .text_color(theme.foreground)
             .child(
                 v_flex()

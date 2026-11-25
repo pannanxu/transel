@@ -551,7 +551,7 @@ impl Render for LangMenuView {
             .on_action(cx.listener(Self::close_menu))
             .size_full()
             .p(px(SHADOW_MARGIN))
-            .font_family(".SystemUIFont")
+            .font_family(crate::shared::theme::ui_font_family())
             .child(card)
     }
 }

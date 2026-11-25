@@ -1026,7 +1026,7 @@ impl Render for TranslatePopup {
                     inset: false,
                 }])
             })
-            .font_family(".SystemUIFont")
+            .font_family(crate::shared::theme::ui_font_family())
             .cursor_default()
             .child(header)
             .child(body);
@@ -1218,7 +1218,7 @@ impl TranslatePopup {
                         .text_size(px(11.))
                         .line_height(px(CHANNEL_HEADER_H))
                         .font_weight(FontWeight::MEDIUM)
-                        .font_family(".SystemUIFont")
+                        .font_family(crate::shared::theme::ui_font_family())
                         .text_color(name_color)
                         .map(|el| {
                             if r.pending {
@@ -1228,7 +1228,7 @@ impl TranslatePopup {
                                         .text_size(px(11.))
                                         .line_height(px(CHANNEL_HEADER_H))
                                         .font_weight(FontWeight::MEDIUM)
-                                        .font_family(".SystemUIFont")
+                                        .font_family(crate::shared::theme::ui_font_family())
                                         .text_color(name_color)
                                         .highlight_color(p.accent),
                                 )

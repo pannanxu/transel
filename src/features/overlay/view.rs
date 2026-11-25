@@ -324,7 +324,7 @@ impl Render for OverlayView {
                     inset: false,
                 }])
             })
-            .font_family(".SystemUIFont")
+            .font_family(crate::shared::theme::ui_font_family())
             .child(header)
             .child(div().h(px(1.)).w_full().bg(p.divider))
             .child(canvas);
